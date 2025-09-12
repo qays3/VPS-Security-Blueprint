@@ -13,11 +13,12 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Installing and configuring Wazuh..."
 
-curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+chmod 644 /usr/share/keyrings/wazuh.gpg
 mkdir -p /etc/apt/sources.list.d
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt stable main" | tee /etc/apt/sources.list.d/wazuh.list >/dev/null
 apt update
-apt install -y wazuh-manager
+apt install -y wazuh-manager dos2unix
 
 systemctl daemon-reload
 systemctl enable wazuh-manager
@@ -41,43 +42,38 @@ cat > /var/ossec/etc/ossec.conf <<'EOF'
     <logall_json>no</logall_json>
     <email_notification>no</email_notification>
   </global>
-
   <alerts>
     <log_alert_level>3</log_alert_level>
   </alerts>
-
   <remote>
     <connection>secure</connection>
     <port>1514</port>
     <protocol>tcp</protocol>
   </remote>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/suricata/fast.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/fail2ban.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/access.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/error.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/security-sync.log</location>
   </localfile>
 </ossec_config>
 EOF
+
+dos2unix /var/ossec/etc/ossec.conf
 
 mkdir -p /var/ossec/logs/alerts
 mkdir -p /var/log
