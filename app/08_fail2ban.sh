@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log_info "Configuring Fail2ban with cross-service IP sharing..."
+
+cp -a /etc/fail2ban/jail.conf "${BACKUP_DIR}/jail.conf.bak" || true
+
+cat > /etc/fail2ban/action.d/wazuh-ban.conf <<'EOF'
+[Definition]
+actionstart = 
+actionstop = 
+actioncheck = 
+actionban = echo "<86>$(date --rfc-3339=seconds) fail2ban banned IP <ip>" >> /var/ossec/logs/alerts/alerts.log 2>/dev/null || true
+actionunban = echo "<86>$(date --rfc-3339=seconds) fail2ban unbanned IP <ip>" >> /var/ossec/logs/alerts/alerts.log 2>/dev/null || true
+EOF
+
+cat > /etc/fail2ban/jail.local <<'EOF'
+[DEFAULT]
+bantime = 7200
+findtime = 600
+maxretry = 3
+backend = auto
+banaction = ufw
+action = %(action_mwl)s
+         wazuh-ban
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+
+[nginx-http-auth]
+enabled = true
+filter = nginx-http-auth
+logpath = /var/log/nginx/error.log
+maxretry = 3
+
+[nginx-noscript]
+enabled = true
+port = http,https
+filter = nginx-noscript
+logpath = /var/log/nginx/access.log
+maxretry = 6
+
+[nginx-badbots]
+enabled = true
+port = http,https
+filter = nginx-badbots
+logpath = /var/log/nginx/access.log
+maxretry = 2
+
+[nginx-nohome]
+enabled = true
+port = http,https
+filter = nginx-nohome
+logpath = /var/log/nginx/access.log
+maxretry = 2
+
+[nginx-noproxy]
+enabled = true
+port = http,https
+filter = nginx-noproxy
+logpath = /var/log/nginx/access.log
+maxretry = 2
+
+[suricata]
+enabled = true
+filter = suricata
+logpath = /var/log/suricata/fast.log
+maxretry = 1
+bantime = 86400
+EOF
+
+cat > /etc/fail2ban/filter.d/suricata.conf <<'EOF'
+[Definition]
+failregex = ^\S+\s+\[\*\*\] \[.+\] .* \[Classification: .+\] \[Priority: .+\] \{.+\} <HOST>:\d+ ->
+ignoreregex =
+EOF
+
+systemctl enable fail2ban
+systemctl restart fail2ban
+log_info "Fail2ban configured successfully"
