@@ -2,6 +2,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+
 TIMESTAMP=$(date +%F_%T)
 BACKUP_DIR="/root/sec-backups-${TIMESTAMP}"
 mkdir -p "$BACKUP_DIR"
