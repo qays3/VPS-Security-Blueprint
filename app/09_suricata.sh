@@ -174,7 +174,7 @@ mkdir -p /var/log/suricata
 chown suricata:suricata /var/log/suricata
 
 SURICATA_DEFAULT="/etc/default/suricata"
-echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" > "$SURICATA_DEFAULT"
+echo "RUN_ARGS=\"-i ${PRIMARY_IFACE}\"" > "$SURICATA_DEFAULT"
 
 if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
     log_warn "No Suricata rules found, downloading basic ruleset..."
