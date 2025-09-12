@@ -63,13 +63,12 @@ log_info "Starting security setup..."
 
 "$APP_DIR/11_nginx_modsecurity.sh"
 
-"$APP_DIR/12_wazuh.sh"
 
-"$APP_DIR/13_service_integration.sh"
+"$APP_DIR/12_service_integration.sh"
 
-"$APP_DIR/14_monitoring.sh"
+"$APP_DIR/13_monitoring.sh"
 
-"$APP_DIR/15_final_setup.sh"
+"$APP_DIR/14_final_setup.sh"
 
 log_info "Security setup completed successfully!"
 log_info "Run '/usr/local/bin/security-status.sh' to check system status."
