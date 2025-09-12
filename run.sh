@@ -23,8 +23,7 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR/app"
+APP_DIR="/app"
 
 if [ ! -d "$APP_DIR" ]; then
     log_error "App directory not found: $APP_DIR"
