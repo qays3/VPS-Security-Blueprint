@@ -24,7 +24,7 @@
 
 ## Purpose & Scope
 
-This enhanced blueprint provides a **fully automated, enterprise-grade VPS security setup** with **coordinated defense mechanisms**. Its purpose is to secure a single VPS by:
+This blueprint provides a **fully automated, enterprise-grade VPS security setup** with **coordinated defense mechanisms**. Its purpose is to secure a single VPS by:
 
 * **Hardening SSH and system login** with advanced authentication controls
 * **Implementing multi-layer DDoS protection** at kernel, firewall, and application levels
