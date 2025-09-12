@@ -18,13 +18,11 @@ if ! grep -q "packages.wazuh.com" /etc/apt/sources.list.d/wazuh.list 2>/dev/null
     echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
 fi
 apt update
-
 apt install -y wazuh-manager
 
 systemctl daemon-reload
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
-
 sleep 10
 
 if [ ! -d "/var/ossec/etc/rules" ]; then
@@ -34,32 +32,30 @@ fi
 
 cp -a /var/ossec/etc/ossec.conf "${BACKUP_DIR}/ossec.conf.bak" || true
 
-cat >> /var/ossec/etc/ossec.conf <<'EOF'
+sed -i '/<\/ossec_config>/d' /var/ossec/etc/ossec.conf
 
+cat >> /var/ossec/etc/ossec.conf <<'EOF'
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/suricata/fast.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/fail2ban.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/access.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/error.log</location>
   </localfile>
-
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/security-sync.log</location>
   </localfile>
+</ossec_config>
 EOF
 
 mkdir -p /var/ossec/logs/alerts
