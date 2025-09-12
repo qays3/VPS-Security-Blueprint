@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# File: app/09_suricata.sh
+# File: app/11_nginx_modsecurity.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -7,157 +7,162 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 BACKUP_DIR="${BACKUP_DIR:-/root/sec-backups-$(date +%F_%T)}"
-[ -f /tmp/vps_network_vars.sh ] && source /tmp/vps_network_vars.sh
-PRIMARY_IFACE="${PRIMARY_IFACE:-eth0}"
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_info "Installing and configuring Suricata IPS..."
+log_info "Installing Nginx with ModSecurity..."
 
-apt install -y suricata
-cp -a /etc/suricata/suricata.yaml "${BACKUP_DIR}/suricata.yaml.bak" || true
+apt install -y nginx libnginx-mod-security
+mkdir -p /etc/nginx/modsec
 
-cat > /etc/suricata/suricata.yaml <<EOF
-%YAML 1.1
----
-vars:
-  address-groups:
-    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
-    EXTERNAL_NET: "!\$HOME_NET"
-    HTTP_SERVERS: "\$HOME_NET"
-    SMTP_SERVERS: "\$HOME_NET"
-    SQL_SERVERS: "\$HOME_NET"
-    DNS_SERVERS: "\$HOME_NET"
-    TELNET_SERVERS: "\$HOME_NET"
-    AIM_SERVERS: "\$EXTERNAL_NET"
-    DC_SERVERS: "\$HOME_NET"
-    DNP3_SERVER: "\$HOME_NET"
-    DNP3_CLIENT: "\$HOME_NET"
-    MODBUS_CLIENT: "\$HOME_NET"
-    MODBUS_SERVER: "\$HOME_NET"
-    ENIP_CLIENT: "\$HOME_NET"
-    ENIP_SERVER: "\$HOME_NET"
-
-  port-groups:
-    HTTP_PORTS: "80"
-    SHELLCODE_PORTS: "!80"
-    ORACLE_PORTS: 1521
-    SSH_PORTS: 22
-    DNP3_PORTS: 20000
-    MODBUS_PORTS: 502
-    FILE_DATA_PORTS: "[\$HTTP_PORTS,110,143]"
-    FTP_PORTS: 21
-    VXLAN_PORTS: 4789
-    TEREDO_PORTS: 3544
-
-default-log-dir: /var/log/suricata/
-
-outputs:
-  - fast:
-      enabled: yes
-      filename: fast.log
-      append: yes
-  - eve-log:
-      enabled: yes
-      filetype: regular
-      filename: eve.json
-      types:
-        - alert:
-            payload: yes
-            packet: yes
-        - http
-        - dns
-        - tls
-        - files
-        - drop
-
-af-packet:
-  - interface: ${PRIMARY_IFACE}
-    threads: auto
-    cluster-type: cluster_flow
-    cluster-id: 99
-    copy-mode: ips
-    copy-iface: ${PRIMARY_IFACE}
-
-app-layer:
-  protocols:
-    tls:
-      enabled: yes
-    http:
-      enabled: yes
-    ssh:
-      enabled: yes
-    dns:
-      enabled: yes
-    modbus:
-      enabled: yes
-      detection-ports:
-        dp: 502
-    dnp3:
-      enabled: yes
-      detection-ports:
-        dp: 20000
-
-detect:
-  profile: medium
-
-threading:
-  set-cpu-affinity: no
-
-flow:
-  memcap: 64mb
-  hash-size: 65536
-
-stream:
-  memcap: 32mb
+cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
+SecRuleEngine On
+SecRequestBodyAccess On
+SecRequestBodyLimit 13107200
+SecRequestBodyNoFilesLimit 131072
+SecRequestBodyInMemoryLimit 131072
+SecRequestBodyLimitAction Reject
+SecResponseBodyAccess On
+SecResponseBodyMimeType text/plain text/html text/xml
+SecResponseBodyLimit 524288
+SecResponseBodyLimitAction ProcessPartial
+SecTmpDir /tmp/
+SecDataDir /tmp/
+SecAuditEngine RelevantOnly
+SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+SecAuditLogParts ABIJDEFHZ
+SecAuditLogType Serial
+SecAuditLog /var/log/nginx/modsec_audit.log
+SecArgumentSeparator &
+SecCookieFormat 0
+SecStatusEngine On
+SecDefaultAction "phase:1,log,auditlog,pass"
+SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
-SURICATA_DEFAULT="/etc/default/suricata"
-if [ -f "$SURICATA_DEFAULT" ]; then
-  cp -a "$SURICATA_DEFAULT" "${BACKUP_DIR}/suricata.default.bak"
-  sed -i "s/^#RUN_ARGS=.*/RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"/" "$SURICATA_DEFAULT" || echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" >> "$SURICATA_DEFAULT"
-else
-  echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" > "$SURICATA_DEFAULT"
-fi
-
-suricata-update || log_warn "Suricata rule update failed, continuing..."
-
-if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
-    log_warn "No Suricata rules found, downloading basic ruleset..."
-    mkdir -p /var/lib/suricata/rules
-    wget -O /tmp/emerging.rules.tar.gz https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz 2>/dev/null || true
-    if [ -f /tmp/emerging.rules.tar.gz ]; then
-        tar -xzf /tmp/emerging.rules.tar.gz -C /var/lib/suricata/rules/ --strip-components=1 || true
-        rm -f /tmp/emerging.rules.tar.gz
-        log_info "Basic ruleset downloaded"
+if [ ! -d /etc/nginx/modsec/crs ]; then
+    if command -v git >/dev/null 2>&1; then
+        git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
+        cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
+    else
+        log_warn "Git not available, creating basic rule set..."
+        mkdir -p /etc/nginx/modsec/crs/rules
+        echo "# Basic CRS placeholder" > /etc/nginx/modsec/crs/crs-setup.conf
     fi
 fi
 
-cat >> /etc/suricata/suricata.yaml <<EOF
-
-rule-files:
-  - /var/lib/suricata/rules/suricata.rules
-  - /var/lib/suricata/rules/*.rules
-
-stats:
-  enabled: yes
-  interval: 8
-  
-logging:
-  outputs:
-    - console:
-        enabled: yes
-    - file:
-        enabled: yes
-        filename: /var/log/suricata/suricata.log
+cat > /etc/nginx/modsec/main.conf <<'EOF'
+Include /etc/nginx/modsec/modsecurity.conf
+Include /etc/nginx/modsec/crs/crs-setup.conf
+Include /etc/nginx/modsec/crs/rules/*.conf
 EOF
 
-if suricata -T -c /etc/suricata/suricata.yaml; then
-    systemctl enable suricata
-    systemctl restart suricata
-    log_info "Suricata configured and started successfully"
+NGINX_CONF="/etc/nginx/nginx.conf"
+cp -a "$NGINX_CONF" "${BACKUP_DIR}/nginx.conf.bak"
+
+cat > /etc/nginx/nginx.conf <<'EOF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 768;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 10M;
+    
+    limit_req_zone $binary_remote_addr zone=one:10m rate=1r/s;
+    limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
+    
+    limit_req_status 503;
+    limit_conn_status 503;
+    
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+
+cat > /etc/nginx/sites-available/default <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    root /var/www/html;
+    index index.html index.htm index.nginx-debian.html;
+    server_name _;
+
+${MODSEC_CONFIG}
+
+    limit_req zone=one burst=5 nodelay;
+    limit_conn conn_limit_per_ip 10;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+
+    location ~* \.(asp|aspx|jsp|cgi|php)\$ {
+        return 404;
+    }
+
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    location ~* "(union.*select|insert.*into|delete.*from|drop.*table)" {
+        return 444;
+    }
+
+    location ~* "(script.*>|<.*script|javascript:|vbscript:)" {
+        return 444;
+    }
+
+    location ~* "\.\./|\.\.\\\"" {
+        return 444;
+    }
+
+    location ~* "\x00" {
+        return 444;
+    }
+}
+EOF
+
+if nginx -t; then
+    systemctl reload nginx
+    log_info "Nginx with ModSecurity configured successfully"
 else
-    log_error "Suricata configuration test failed"
+    log_error "Nginx configuration test failed"
 fi

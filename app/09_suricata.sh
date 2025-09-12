@@ -124,6 +124,36 @@ fi
 
 suricata-update || log_warn "Suricata rule update failed, continuing..."
 
+if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
+    log_warn "No Suricata rules found, downloading basic ruleset..."
+    mkdir -p /var/lib/suricata/rules
+    wget -O /tmp/emerging.rules.tar.gz https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz 2>/dev/null || true
+    if [ -f /tmp/emerging.rules.tar.gz ]; then
+        tar -xzf /tmp/emerging.rules.tar.gz -C /var/lib/suricata/rules/ --strip-components=1 || true
+        rm -f /tmp/emerging.rules.tar.gz
+        log_info "Basic ruleset downloaded"
+    fi
+fi
+
+cat >> /etc/suricata/suricata.yaml <<EOF
+
+rule-files:
+  - /var/lib/suricata/rules/suricata.rules
+  - /var/lib/suricata/rules/*.rules
+
+stats:
+  enabled: yes
+  interval: 8
+  
+logging:
+  outputs:
+    - console:
+        enabled: yes
+    - file:
+        enabled: yes
+        filename: /var/log/suricata/suricata.log
+EOF
+
 if suricata -T -c /etc/suricata/suricata.yaml; then
     systemctl enable suricata
     systemctl restart suricata
