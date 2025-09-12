@@ -14,9 +14,8 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_info "Installing and configuring Wazuh..."
 
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
-if ! grep -q "packages.wazuh.com" /etc/apt/sources.list.d/wazuh.list 2>/dev/null; then
-    echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
-fi
+mkdir -p /etc/apt/sources.list.d
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt stable main" | tee /etc/apt/sources.list.d/wazuh.list >/dev/null
 apt update
 apt install -y wazuh-manager
 
@@ -30,27 +29,49 @@ if [ ! -d "/var/ossec/etc/rules" ]; then
     exit 1
 fi
 
+mkdir -p "$BACKUP_DIR"
 cp -a /var/ossec/etc/ossec.conf "${BACKUP_DIR}/ossec.conf.bak" || true
 
-sed -i '/<\/ossec_config>/d' /var/ossec/etc/ossec.conf
+cat > /var/ossec/etc/ossec.conf <<'EOF'
+<ossec_config>
+  <global>
+    <jsonout_output>yes</jsonout_output>
+    <alerts_log>yes</alerts_log>
+    <logall>no</logall>
+    <logall_json>no</logall_json>
+    <email_notification>no</email_notification>
+  </global>
 
-cat >> /var/ossec/etc/ossec.conf <<'EOF'
+  <alerts>
+    <log_alert_level>3</log_alert_level>
+  </alerts>
+
+  <remote>
+    <connection>secure</connection>
+    <port>1514</port>
+    <protocol>tcp</protocol>
+  </remote>
+
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/suricata/fast.log</location>
   </localfile>
+
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/fail2ban.log</location>
   </localfile>
+
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/access.log</location>
   </localfile>
+
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/nginx/error.log</location>
   </localfile>
+
   <localfile>
     <log_format>syslog</log_format>
     <location>/var/log/security-sync.log</location>
