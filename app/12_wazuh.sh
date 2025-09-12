@@ -11,19 +11,22 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_info "Installing and configuring Wazuh..."
+log_info "Installing dependencies..."
+apt update
+apt install -y curl gnupg dos2unix libxml2-utils apt-transport-https lsb-release
 
+log_info "Installing and configuring Wazuh..."
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
 chmod 644 /usr/share/keyrings/wazuh.gpg
 mkdir -p /etc/apt/sources.list.d
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt stable main" | tee /etc/apt/sources.list.d/wazuh.list >/dev/null
+
 apt update
-apt install -y wazuh-manager dos2unix
+apt install -y wazuh-manager
 
 systemctl daemon-reload
 systemctl enable wazuh-manager
-systemctl start wazuh-manager
-sleep 10
+systemctl stop wazuh-manager || true
 
 if [ ! -d "/var/ossec/etc/rules" ]; then
     log_error "Wazuh rules directory not found after installation"
@@ -73,11 +76,12 @@ cat > /var/ossec/etc/ossec.conf <<'EOF'
 </ossec_config>
 EOF
 
+log_info "Fixing line endings and validating XML..."
 dos2unix /var/ossec/etc/ossec.conf
+xmllint --noout /var/ossec/etc/ossec.conf || { log_error "ossec.conf XML is invalid"; exit 1; }
 
 mkdir -p /var/ossec/logs/alerts
 mkdir -p /var/log
-
 chown -R ossec:ossec /var/ossec/logs/
 chmod 755 /var/ossec/logs/alerts/
 
@@ -88,6 +92,8 @@ if systemctl is-active --quiet wazuh-manager; then
 else
     log_error "Wazuh manager failed to start"
     systemctl status wazuh-manager
+    journalctl -xeu wazuh-manager.service
+    exit 1
 fi
 
 log_info "Wazuh installation completed"
