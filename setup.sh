@@ -735,7 +735,11 @@ log_info "Installing Nginx with ModSecurity..."
 apt install -y nginx libnginx-mod-security
 mkdir -p /etc/nginx/modsec
 
-cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
+# Configure ModSecurity if available
+if [ "$MODSEC_AVAILABLE" = "true" ]; then
+    log_info "Configuring full ModSecurity..."
+    
+    cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
 SecRuleEngine On
 SecRequestBodyAccess On
 SecRule REQUEST_HEADERS:Content-Type "text/xml" \
@@ -802,18 +806,37 @@ SecAction \
    setvar:tx.crs_setup_version=340"
 EOF
 
-# Download and setup OWASP CRS
-log_info "Setting up OWASP Core Rule Set..."
-if [ ! -d /etc/nginx/modsec/crs ]; then
-  git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
-  cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
-fi
+    # Download and setup OWASP CRS
+    log_info "Setting up OWASP Core Rule Set..."
+    if [ ! -d /etc/nginx/modsec/crs ]; then
+        if command -v git >/dev/null 2>&1; then
+            git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
+            cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
+        else
+            log_warn "Git not available, creating basic rule set..."
+            mkdir -p /etc/nginx/modsec/crs/rules
+            echo "# Basic CRS placeholder" > /etc/nginx/modsec/crs/crs-setup.conf
+        fi
+    fi
 
-cat > /etc/nginx/modsec/main.conf <<'EOF'
+    cat > /etc/nginx/modsec/main.conf <<'EOF'
 Include /etc/nginx/modsec/modsecurity.conf
 Include /etc/nginx/modsec/crs/crs-setup.conf
 Include /etc/nginx/modsec/crs/rules/*.conf
 EOF
+
+    MODSEC_CONFIG="    # ModSecurity
+    modsecurity on;
+    modsecurity_rules_file /etc/nginx/modsec/main.conf;"
+    
+elif [ "$MODSEC_AVAILABLE" = "basic" ]; then
+    log_info "Using basic security rules..."
+    MODSEC_CONFIG="    # Basic security rules
+    include /etc/nginx/modsec/basic-security.conf;"
+else
+    log_warn "No ModSecurity available, using basic security headers only..."
+    MODSEC_CONFIG="    # Basic security (no ModSecurity module available)"
+fi
 
 # Configure Nginx with ModSecurity
 NGINX_CONF="/etc/nginx/nginx.conf"
@@ -879,7 +902,7 @@ http {
 }
 EOF
 
-cat > /etc/nginx/sites-available/default <<'EOF'
+cat > /etc/nginx/sites-available/default <<EOF
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
@@ -888,9 +911,7 @@ server {
     index index.html index.htm index.nginx-debian.html;
     server_name _;
 
-    # ModSecurity
-    modsecurity on;
-    modsecurity_rules_file /etc/nginx/modsec/main.conf;
+${MODSEC_CONFIG}
 
     # Rate limiting
     limit_req zone=one burst=5 nodelay;
@@ -904,11 +925,11 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 
     location / {
-        try_files $uri $uri/ =404;
+        try_files \$uri \$uri/ =404;
     }
 
     # Block common attack patterns
-    location ~* \.(asp|aspx|jsp|cgi|php)$ {
+    location ~* \.(asp|aspx|jsp|cgi|php)\$ {
         return 404;
     }
 
@@ -916,6 +937,26 @@ server {
         deny all;
         access_log off;
         log_not_found off;
+    }
+
+    # Block common attack patterns in URI
+    location ~* "(union.*select|insert.*into|delete.*from|drop.*table)" {
+        return 444;
+    }
+
+    # Block script injection
+    location ~* "(script.*>|<.*script|javascript:|vbscript:)" {
+        return 444;
+    }
+
+    # Block directory traversal
+    location ~* "\.\./|\.\.\\\" {
+        return 444;
+    }
+
+    # Block null bytes
+    location ~* "\x00" {
+        return 444;
     }
 }
 EOF
