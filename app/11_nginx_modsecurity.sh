@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/11_nginx_modsecurity.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -14,47 +13,11 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Installing Nginx with ModSecurity..."
 
-apt install -y nginx
-
-log_info "Attempting to install ModSecurity from available sources..."
-
-MODSEC_AVAILABLE=false
-
-if command -v add-apt-repository >/dev/null 2>&1; then
-    log_info "Trying third-party PPA for ModSecurity..."
-    add-apt-repository ppa:phusion.nl/misc -y 2>/dev/null || true
-    apt update 2>/dev/null || true
-    
-    if apt install -y libnginx-mod-http-modsecurity 2>/dev/null; then
-        MODSEC_AVAILABLE=true
-        log_info "ModSecurity installed from PPA"
-    else
-        log_warn "PPA ModSecurity installation failed"
-    fi
-fi
-
-if [ "$MODSEC_AVAILABLE" = "false" ]; then
-    if apt install -y libmodsecurity3 2>/dev/null; then
-        log_info "Basic libmodsecurity3 installed, but nginx module not available"
-        log_warn "Full ModSecurity integration requires compilation from source"
-    else
-        log_warn "No ModSecurity packages available"
-    fi
-fi
+apt install -y nginx libmodsecurity3
 
 mkdir -p /etc/nginx/modsec
 
-if nginx -V 2>&1 | grep -q modsecurity || dpkg -l 2>/dev/null | grep -qE "libnginx-mod.*modsecurity"; then
-    MODSEC_AVAILABLE=true
-    log_info "ModSecurity nginx module detected"
-else
-    MODSEC_AVAILABLE=false
-    log_warn "ModSecurity nginx module not available - using basic security only"
-    log_info "For full ModSecurity, manual compilation from source is required"
-fi
-
-if [ "$MODSEC_AVAILABLE" = "true" ]; then
-    cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
+cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
 SecRuleEngine On
 SecRequestBodyAccess On
 SecRequestBodyLimit 13107200
@@ -79,29 +42,19 @@ SecDefaultAction "phase:1,log,auditlog,pass"
 SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
-    if [ ! -d /etc/nginx/modsec/crs ]; then
-        if command -v git >/dev/null 2>&1; then
-            git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
-            cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
-        else
-            log_warn "Git not available, creating basic rule set..."
-            mkdir -p /etc/nginx/modsec/crs/rules
-            echo "# Basic CRS placeholder" > /etc/nginx/modsec/crs/crs-setup.conf
-        fi
-    fi
+if command -v git >/dev/null 2>&1 && [ ! -d /etc/nginx/modsec/crs ]; then
+    git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
+    cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
+else
+    mkdir -p /etc/nginx/modsec/crs/rules
+    echo "# Basic CRS placeholder" > /etc/nginx/modsec/crs/crs-setup.conf
+fi
 
-    cat > /etc/nginx/modsec/main.conf <<'EOF'
+cat > /etc/nginx/modsec/main.conf <<'EOF'
 Include /etc/nginx/modsec/modsecurity.conf
 Include /etc/nginx/modsec/crs/crs-setup.conf
 Include /etc/nginx/modsec/crs/rules/*.conf
 EOF
-
-    MODSEC_CONFIG="    modsecurity on;
-    modsecurity_rules_file /etc/nginx/modsec/main.conf;"
-else
-    log_info "Creating basic security configuration without ModSecurity..."
-    MODSEC_CONFIG="    # ModSecurity not available"
-fi
 
 NGINX_CONF="/etc/nginx/nginx.conf"
 cp -a "$NGINX_CONF" "${BACKUP_DIR}/nginx.conf.bak"
@@ -202,9 +155,5 @@ server {
 }
 EOF
 
-if nginx -t; then
-    systemctl reload nginx
-    log_info "Nginx configured successfully"
-else
-    log_error "Nginx configuration test failed"
-fi
+nginx -t && systemctl reload nginx
+log_info "Nginx configured successfully"
