@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/11_nginx_modsecurity.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -14,9 +13,44 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Installing Nginx with ModSecurity..."
 
-apt install -y nginx libmodsecurity3 nginx-module-modsecurity
+apt update
+apt install -y nginx libmodsecurity3 libmodsecurity-dev build-essential libpcre3-dev zlib1g-dev libssl-dev git
 
+mkdir -p "${BACKUP_DIR}"
 mkdir -p /etc/nginx/modsec /var/log/nginx
+
+systemctl stop nginx 2>/dev/null || true
+
+if [ ! -f /usr/lib/nginx/modules/ngx_http_modsecurity_module.so ]; then
+    log_info "Compiling ModSecurity Nginx module..."
+    cd /tmp
+    
+    NGINX_VERSION=$(nginx -v 2>&1 | grep -oP 'nginx/\K[0-9.]+')
+    
+    rm -rf nginx-$NGINX_VERSION modsecurity-nginx
+    
+    wget -q http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz
+    tar xzf nginx-$NGINX_VERSION.tar.gz
+    
+    git clone --depth 1 https://github.com/SpiderLabs/ModSecurity-nginx.git modsecurity-nginx
+    
+    cd nginx-$NGINX_VERSION
+    
+    NGINX_MODULES_PATH="/usr/lib/nginx/modules"
+    mkdir -p "$NGINX_MODULES_PATH"
+    
+    ./configure --with-compat --add-dynamic-module=../modsecurity-nginx
+    make modules
+    
+    cp objs/ngx_http_modsecurity_module.so "$NGINX_MODULES_PATH/"
+    
+    cd /tmp
+    rm -rf nginx-$NGINX_VERSION* modsecurity-nginx
+    
+    log_info "ModSecurity Nginx module compiled successfully"
+else
+    log_info "ModSecurity module already exists"
+fi
 
 cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
 SecRuleEngine On
@@ -43,29 +77,11 @@ SecDefaultAction "phase:1,log,auditlog,pass"
 SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
-if command -v git >/dev/null 2>&1 && [ ! -d /etc/nginx/modsec/crs ]; then
+if ! [ -d /etc/nginx/modsec/crs ]; then
     log_info "Downloading OWASP Core Rule Set..."
     git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
     cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
     log_info "OWASP CRS installed"
-else
-    log_warn "Git not available or CRS already exists, creating minimal setup"
-    mkdir -p /etc/nginx/modsec/crs/rules
-    cat > /etc/nginx/modsec/crs/crs-setup.conf <<'EOF'
-SecDefaultAction "phase:1,log,auditlog,pass"
-SecDefaultAction "phase:2,log,auditlog,pass"
-
-SecRule REQUEST_METHOD "@streq GET" \
-    "id:901110,\
-    phase:1,\
-    pass,\
-    t:none,\
-    nolog,\
-    tag:'application-multi',\
-    tag:'language-multi',\
-    tag:'platform-multi',\
-    tag:'attack-generic'"
-EOF
 fi
 
 cat > /etc/nginx/modsec/main.conf <<'EOF'
@@ -75,7 +91,7 @@ Include /etc/nginx/modsec/crs/rules/*.conf
 EOF
 
 NGINX_CONF="/etc/nginx/nginx.conf"
-cp -a "$NGINX_CONF" "${BACKUP_DIR}/nginx.conf.bak"
+cp -a "$NGINX_CONF" "${BACKUP_DIR}/nginx.conf.bak" 2>/dev/null || true
 
 cat > /etc/nginx/nginx.conf <<'EOF'
 user www-data;
@@ -83,7 +99,7 @@ worker_processes auto;
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
-load_module modules/ngx_http_modsecurity_module.so;
+load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;
 
 events {
     worker_connections 1024;
@@ -130,6 +146,8 @@ http {
 }
 EOF
 
+cp -a /etc/nginx/sites-available/default "${BACKUP_DIR}/default.bak" 2>/dev/null || true
+
 cat > /etc/nginx/sites-available/default <<'EOF'
 server {
     listen 80 default_server;
@@ -150,7 +168,6 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location / {
         try_files $uri $uri/ =404;
@@ -233,7 +250,7 @@ cat > /var/www/html/index.html <<'EOF'
 </head>
 <body>
     <div class="container">
-        <h1>🛡️ Security Systems Active</h1>
+        <h1>Security Systems Active</h1>
         <div class="status">
             <strong>Server Status: PROTECTED</strong>
         </div>
@@ -260,18 +277,31 @@ cat > /var/www/html/index.html <<'EOF'
 </html>
 EOF
 
-if nginx -t 2>/dev/null; then
+chown -R www-data:www-data /var/www/html
+chmod 755 /var/www/html
+chmod 644 /var/www/html/index.html
+chown -R root:root /etc/nginx/modsec
+chmod -R 644 /etc/nginx/modsec/*.conf
+
+if nginx -t; then
     systemctl enable nginx
-    systemctl restart nginx
-    log_info "Nginx with ModSecurity configured and started successfully"
+    systemctl start nginx
+    
+    if systemctl is-active --quiet nginx; then
+        log_info "Nginx with ModSecurity configured and started successfully"
+    else
+        log_error "Nginx failed to start"
+        systemctl status nginx --no-pager
+        exit 1
+    fi
 else
     log_error "Nginx configuration test failed"
-    cp "${BACKUP_DIR}/nginx.conf.bak" "$NGINX_CONF"
-    log_info "Reverted to backup configuration"
+    if [ -f "${BACKUP_DIR}/nginx.conf.bak" ]; then
+        cp "${BACKUP_DIR}/nginx.conf.bak" "$NGINX_CONF"
+        log_info "Reverted to backup configuration"
+    fi
+    nginx -t
     exit 1
 fi
-
-chown -R www-data:www-data /var/www/html
-chmod 644 /var/www/html/index.html
 
 log_info "Nginx and ModSecurity installation completed"
