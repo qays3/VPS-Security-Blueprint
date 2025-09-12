@@ -135,11 +135,8 @@ if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/r
     fi
 fi
 
+if ! grep -q "stats:" /etc/suricata/suricata.yaml; then
 cat >> /etc/suricata/suricata.yaml <<EOF
-
-rule-files:
-  - /var/lib/suricata/rules/suricata.rules
-  - /var/lib/suricata/rules/*.rules
 
 stats:
   enabled: yes
@@ -153,6 +150,7 @@ logging:
         enabled: yes
         filename: /var/log/suricata/suricata.log
 EOF
+fi
 
 if suricata -T -c /etc/suricata/suricata.yaml; then
     systemctl enable suricata

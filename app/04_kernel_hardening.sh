@@ -16,7 +16,9 @@ log_info "Applying kernel hardening and DDoS protection..."
 
 cp -a /etc/sysctl.conf "${BACKUP_DIR}/sysctl.conf.bak"
 
+if ! grep -q "# VPS Security Hardening" /etc/sysctl.conf; then
 cat >> /etc/sysctl.conf <<'EOF'
+# VPS Security Hardening
 net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
@@ -51,6 +53,9 @@ net.ipv4.tcp_rfc1337 = 1
 net.ipv4.tcp_max_orphans = 65536
 net.ipv4.tcp_orphan_retries = 0
 EOF
+else
+    log_info "Kernel hardening already applied, skipping"
+fi
 
 sysctl -p
 log_info "Kernel hardening applied successfully"
