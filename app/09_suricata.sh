@@ -91,6 +91,14 @@ app-layer:
       enabled: yes
     dns:
       enabled: yes
+    modbus:
+      enabled: yes
+      detection-ports:
+        dp: 502
+    dnp3:
+      enabled: yes
+      detection-ports:
+        dp: 20000
 
 detect:
   profile: medium

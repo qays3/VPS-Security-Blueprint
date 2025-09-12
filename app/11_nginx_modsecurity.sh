@@ -108,7 +108,7 @@ http {
 }
 EOF
 
-cat > /etc/nginx/sites-available/default <<'EOF'
+cat > /etc/nginx/sites-available/default <<EOF
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
@@ -117,8 +117,7 @@ server {
     index index.html index.htm index.nginx-debian.html;
     server_name _;
 
-    modsecurity on;
-    modsecurity_rules_file /etc/nginx/modsec/main.conf;
+${MODSEC_CONFIG}
 
     limit_req zone=one burst=5 nodelay;
     limit_conn conn_limit_per_ip 10;
@@ -130,10 +129,10 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 
     location / {
-        try_files $uri $uri/ =404;
+        try_files \$uri \$uri/ =404;
     }
 
-    location ~* \.(asp|aspx|jsp|cgi|php)$ {
+    location ~* \.(asp|aspx|jsp|cgi|php)\$ {
         return 404;
     }
 
@@ -151,7 +150,7 @@ server {
         return 444;
     }
 
-    location ~* "\.\./|\.\.\\\" {
+    location ~* "\.\./|\.\.\\\"" {
         return 444;
     }
 
