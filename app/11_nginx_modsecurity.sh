@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# File: app/11_nginx_modsecurity.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -13,9 +14,9 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Installing Nginx with ModSecurity..."
 
-apt install -y nginx libmodsecurity3
+apt install -y nginx libmodsecurity3 nginx-module-modsecurity
 
-mkdir -p /etc/nginx/modsec
+mkdir -p /etc/nginx/modsec /var/log/nginx
 
 cat > /etc/nginx/modsec/modsecurity.conf <<'EOF'
 SecRuleEngine On
@@ -25,7 +26,7 @@ SecRequestBodyNoFilesLimit 131072
 SecRequestBodyInMemoryLimit 131072
 SecRequestBodyLimitAction Reject
 SecResponseBodyAccess On
-SecResponseBodyMimeType text/plain text/html text/xml
+SecResponseBodyMimeType text/plain text/html text/xml application/json
 SecResponseBodyLimit 524288
 SecResponseBodyLimitAction ProcessPartial
 SecTmpDir /tmp/
@@ -43,11 +44,28 @@ SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
 if command -v git >/dev/null 2>&1 && [ ! -d /etc/nginx/modsec/crs ]; then
+    log_info "Downloading OWASP Core Rule Set..."
     git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
     cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
+    log_info "OWASP CRS installed"
 else
+    log_warn "Git not available or CRS already exists, creating minimal setup"
     mkdir -p /etc/nginx/modsec/crs/rules
-    echo "# Basic CRS placeholder" > /etc/nginx/modsec/crs/crs-setup.conf
+    cat > /etc/nginx/modsec/crs/crs-setup.conf <<'EOF'
+SecDefaultAction "phase:1,log,auditlog,pass"
+SecDefaultAction "phase:2,log,auditlog,pass"
+
+SecRule REQUEST_METHOD "@streq GET" \
+    "id:901110,\
+    phase:1,\
+    pass,\
+    t:none,\
+    nolog,\
+    tag:'application-multi',\
+    tag:'language-multi',\
+    tag:'platform-multi',\
+    tag:'attack-generic'"
+EOF
 fi
 
 cat > /etc/nginx/modsec/main.conf <<'EOF'
@@ -65,8 +83,10 @@ worker_processes auto;
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
+load_module modules/ngx_http_modsecurity_module.so;
+
 events {
-    worker_connections 768;
+    worker_connections 1024;
     use epoll;
     multi_accept on;
 }
@@ -78,27 +98,32 @@ http {
     keepalive_timeout 65;
     types_hash_max_size 2048;
     client_max_body_size 10M;
+    server_tokens off;
     
-    limit_req_zone $binary_remote_addr zone=one:10m rate=1r/s;
+    limit_req_zone $binary_remote_addr zone=loginlimit:10m rate=1r/s;
+    limit_req_zone $binary_remote_addr zone=generallimit:10m rate=10r/s;
     limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
     
-    limit_req_status 503;
-    limit_conn_status 503;
+    limit_req_status 429;
+    limit_conn_status 429;
     
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
+                    '"$http_user_agent" "$http_x_forwarded_for" '
+                    'rt=$request_time uct="$upstream_connect_time" '
+                    'uht="$upstream_header_time" urt="$upstream_response_time"';
 
     access_log /var/log/nginx/access.log main;
-    error_log /var/log/nginx/error.log;
+    error_log /var/log/nginx/error.log warn;
 
     gzip on;
     gzip_vary on;
     gzip_proxied any;
     gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
 
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
@@ -114,21 +139,35 @@ server {
     index index.html index.htm index.nginx-debian.html;
     server_name _;
 
-    limit_req zone=one burst=5 nodelay;
-    limit_conn conn_limit_per_ip 10;
+    modsecurity on;
+    modsecurity_rules_file /etc/nginx/modsec/main.conf;
+
+    limit_req zone=generallimit burst=20 nodelay;
+    limit_conn conn_limit_per_ip 20;
 
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location / {
+        try_files $uri $uri/ =404;
+        
+        location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+    location /login {
+        limit_req zone=loginlimit burst=5 nodelay;
         try_files $uri $uri/ =404;
     }
 
     location ~* \.(asp|aspx|jsp|cgi|php)$ {
-        return 404;
+        return 444;
     }
 
     location ~ /\. {
@@ -137,11 +176,16 @@ server {
         log_not_found off;
     }
 
+    location ~ /(admin|wp-admin|administrator|phpmyadmin|pma|mysql|db) {
+        deny all;
+        return 444;
+    }
+
     location ~* "(union.*select|insert.*into|delete.*from|drop.*table)" {
         return 444;
     }
 
-    location ~* "(script.*>|<.*script|javascript:|vbscript:)" {
+    location ~* "(script.*>|<.*script|javascript:|vbscript:|onload|onerror)" {
         return 444;
     }
 
@@ -152,8 +196,82 @@ server {
     location ~* "\x00" {
         return 444;
     }
+
+    location /nginx_status {
+        stub_status on;
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+    }
+
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+    
+    location = /404.html {
+        internal;
+    }
+    
+    location = /50x.html {
+        root /var/www/html;
+        internal;
+    }
 }
 EOF
 
-nginx -t && systemctl reload nginx
-log_info "Nginx configured successfully"
+cat > /var/www/html/index.html <<'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Secure Server</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; text-align: center; }
+        .status { background: #27ae60; color: white; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0; }
+        .info { background: #ecf0f1; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Security Systems Active</h1>
+        <div class="status">
+            <strong>Server Status: PROTECTED</strong>
+        </div>
+        <div class="info">
+            <strong>Active Security Features:</strong><br>
+            • Web Application Firewall (ModSecurity)<br>
+            • Intrusion Detection/Prevention System<br>
+            • DDoS Protection<br>
+            • Rate Limiting<br>
+            • Automated Threat Response
+        </div>
+        <div class="info">
+            <strong>Server Time:</strong> <span id="time"></span>
+        </div>
+    </div>
+    <script>
+        function updateTime() {
+            document.getElementById('time').innerHTML = new Date().toLocaleString();
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>
+EOF
+
+if nginx -t 2>/dev/null; then
+    systemctl enable nginx
+    systemctl restart nginx
+    log_info "Nginx with ModSecurity configured and started successfully"
+else
+    log_error "Nginx configuration test failed"
+    cp "${BACKUP_DIR}/nginx.conf.bak" "$NGINX_CONF"
+    log_info "Reverted to backup configuration"
+    exit 1
+fi
+
+chown -R www-data:www-data /var/www/html
+chmod 644 /var/www/html/index.html
+
+log_info "Nginx and ModSecurity installation completed"

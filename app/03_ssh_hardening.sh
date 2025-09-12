@@ -17,15 +17,29 @@ log_info "Hardening SSH configuration..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 cp -a "$SSHD_CONFIG" "${BACKUP_DIR}/sshd_config.bak"
 
-sed -i -E 's/^\s*PermitRootLogin\s+.*/PermitRootLogin no/' "$SSHD_CONFIG" || true
-sed -i -E 's/^\s*#?\s*PasswordAuthentication\s+.*/PasswordAuthentication yes/' "$SSHD_CONFIG" || true
-sed -i -E 's/^\s*#?\s*MaxAuthTries\s+.*/MaxAuthTries 3/' "$SSHD_CONFIG" || echo "MaxAuthTries 3" >> "$SSHD_CONFIG"
-sed -i -E 's/^\s*#?\s*ClientAliveInterval\s+.*/ClientAliveInterval 300/' "$SSHD_CONFIG" || echo "ClientAliveInterval 300" >> "$SSHD_CONFIG"
-sed -i -E 's/^\s*#?\s*ClientAliveCountMax\s+.*/ClientAliveCountMax 2/' "$SSHD_CONFIG" || echo "ClientAliveCountMax 2" >> "$SSHD_CONFIG"
+sed -i '/^#*PermitRootLogin/d' "$SSHD_CONFIG"
+sed -i '/^#*PasswordAuthentication/d' "$SSHD_CONFIG"
+sed -i '/^#*MaxAuthTries/d' "$SSHD_CONFIG"
+sed -i '/^#*ClientAliveInterval/d' "$SSHD_CONFIG"
+sed -i '/^#*ClientAliveCountMax/d' "$SSHD_CONFIG"
+sed -i '/^#*Protocol/d' "$SSHD_CONFIG"
+sed -i '/^#*X11Forwarding/d' "$SSHD_CONFIG"
+
+cat >> "$SSHD_CONFIG" <<'EOF'
+
+PermitRootLogin no
+PasswordAuthentication yes
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
+Protocol 2
+X11Forwarding no
+UsePAM yes
+EOF
 
 if sshd -t; then
     systemctl reload sshd || systemctl restart ssh || true
-    log_info "SSH configuration updated successfully"
+    log_info "SSH configuration updated successfully - root login completely disabled"
 else
     log_error "SSH configuration test failed, reverting changes"
     cp "${BACKUP_DIR}/sshd_config.bak" "$SSHD_CONFIG"

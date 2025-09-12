@@ -17,6 +17,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_info "Installing and configuring Suricata IPS..."
 
 apt install -y suricata
+systemctl stop suricata 2>/dev/null || true
 cp -a /etc/suricata/suricata.yaml "${BACKUP_DIR}/suricata.yaml.bak" || true
 
 cat > /etc/suricata/suricata.yaml <<EOF
@@ -67,11 +68,13 @@ outputs:
         - alert:
             payload: yes
             packet: yes
+            metadata: yes
         - http
         - dns
         - tls
         - files
         - drop
+        - stats
 
 af-packet:
   - interface: ${PRIMARY_IFACE}
@@ -80,13 +83,22 @@ af-packet:
     cluster-id: 99
     copy-mode: ips
     copy-iface: ${PRIMARY_IFACE}
+    buffer-size: 64kb
+    use-mmap: yes
 
 app-layer:
   protocols:
     tls:
       enabled: yes
+      detection-ports:
+        dp: 443
     http:
       enabled: yes
+      libhtp:
+        default-config:
+          personality: IDS
+          request-body-limit: 100kb
+          response-body-limit: 100kb
     ssh:
       enabled: yes
     dns:
@@ -102,60 +114,88 @@ app-layer:
 
 detect:
   profile: medium
+  custom-values:
+    toclient-groups: 3
+    toserver-groups: 25
 
 threading:
   set-cpu-affinity: no
+  detect-thread-ratio: 1.0
 
 flow:
-  memcap: 64mb
+  memcap: 128mb
   hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
 
 stream:
+  memcap: 64mb
+  checksum-validation: yes
+  inline: auto
+  reassembly:
+    memcap: 64mb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+
+host:
+  hash-size: 4096
+  prealloc: 1000
   memcap: 32mb
-EOF
 
-SURICATA_DEFAULT="/etc/default/suricata"
-if [ -f "$SURICATA_DEFAULT" ]; then
-  cp -a "$SURICATA_DEFAULT" "${BACKUP_DIR}/suricata.default.bak"
-  sed -i "s/^#RUN_ARGS=.*/RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"/" "$SURICATA_DEFAULT" || echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" >> "$SURICATA_DEFAULT"
-else
-  echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" > "$SURICATA_DEFAULT"
-fi
-
-suricata-update || log_warn "Suricata rule update failed, continuing..."
-
-if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
-    log_warn "No Suricata rules found, downloading basic ruleset..."
-    mkdir -p /var/lib/suricata/rules
-    wget -O /tmp/emerging.rules.tar.gz https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz 2>/dev/null || true
-    if [ -f /tmp/emerging.rules.tar.gz ]; then
-        tar -xzf /tmp/emerging.rules.tar.gz -C /var/lib/suricata/rules/ --strip-components=1 || true
-        rm -f /tmp/emerging.rules.tar.gz
-        log_info "Basic ruleset downloaded"
-    fi
-fi
-
-if ! grep -q "stats:" /etc/suricata/suricata.yaml; then
-cat >> /etc/suricata/suricata.yaml <<EOF
+defrag:
+  memcap: 32mb
+  hash-size: 65536
+  trackers: 65535
+  max-frags: 65535
+  prealloc: yes
+  timeout: 60
 
 stats:
   enabled: yes
   interval: 8
-  
+
 logging:
+  default-log-level: notice
   outputs:
     - console:
         enabled: yes
     - file:
         enabled: yes
+        level: info
         filename: /var/log/suricata/suricata.log
 EOF
+
+mkdir -p /var/log/suricata
+chown suricata:suricata /var/log/suricata
+
+SURICATA_DEFAULT="/etc/default/suricata"
+echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" > "$SURICATA_DEFAULT"
+
+if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
+    log_warn "No Suricata rules found, downloading basic ruleset..."
+    mkdir -p /var/lib/suricata/rules
+    suricata-update || {
+        wget -q -O /tmp/emerging.rules.tar.gz https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz 2>/dev/null || true
+        if [ -f /tmp/emerging.rules.tar.gz ]; then
+            tar -xzf /tmp/emerging.rules.tar.gz -C /var/lib/suricata/rules/ --strip-components=1 2>/dev/null || true
+            rm -f /tmp/emerging.rules.tar.gz
+            log_info "Basic ruleset downloaded"
+        fi
+    }
 fi
 
 if suricata -T -c /etc/suricata/suricata.yaml; then
     systemctl enable suricata
     systemctl restart suricata
-    log_info "Suricata configured and started successfully"
+    sleep 5
+    if systemctl is-active --quiet suricata; then
+        log_info "Suricata configured and started successfully"
+    else
+        log_error "Suricata failed to start after configuration"
+        systemctl status suricata --no-pager -l
+    fi
 else
     log_error "Suricata configuration test failed"
+    exit 1
 fi
