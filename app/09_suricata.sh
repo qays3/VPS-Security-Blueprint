@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/09_suricata.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -165,6 +164,11 @@ logging:
         level: info
         filename: /var/log/suricata/suricata.log
 EOF
+
+if ! id -u suricata >/dev/null 2>&1; then
+    groupadd --system suricata || true
+    useradd --system --no-create-home --shell /usr/sbin/nologin --gid suricata suricata || true
+fi
 
 mkdir -p /var/log/suricata
 chown suricata:suricata /var/log/suricata
