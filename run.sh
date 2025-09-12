@@ -23,7 +23,8 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-APP_DIR="./app"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/app"
 
 if [ ! -d "$APP_DIR" ]; then
     log_error "App directory not found: $APP_DIR"
@@ -38,49 +39,36 @@ find "$APP_DIR" -name "*.sh" -exec chmod +x {} \;
 
 log_info "Starting security setup..."
 
-echo "=== Package Installation ==="
 "$APP_DIR/01_packages.sh"
 
-echo "=== User Setup ==="
 "$APP_DIR/02_user_setup.sh"
+[ -f /tmp/vps_setup_vars.sh ] && source /tmp/vps_setup_vars.sh
 
-echo "=== SSH Hardening ==="
 "$APP_DIR/03_ssh_hardening.sh"
 
-echo "=== Kernel Hardening ==="
 "$APP_DIR/04_kernel_hardening.sh"
 
-echo "=== Network Detection ==="
 "$APP_DIR/05_network_detection.sh"
+[ -f /tmp/vps_network_vars.sh ] && source /tmp/vps_network_vars.sh
 
-echo "=== DDoS Protection ==="
 "$APP_DIR/06_ddos_protection.sh"
 
-echo "=== UFW Firewall ==="
 "$APP_DIR/07_ufw_firewall.sh"
 
-echo "=== Fail2ban Setup ==="
 "$APP_DIR/08_fail2ban.sh"
 
-echo "=== Suricata IPS ==="
 "$APP_DIR/09_suricata.sh"
 
-echo "=== Snort IDS ==="
 "$APP_DIR/10_snort.sh"
 
-echo "=== Nginx and ModSecurity ==="
 "$APP_DIR/11_nginx_modsecurity.sh"
 
-echo "=== Wazuh Installation ==="
 "$APP_DIR/12_wazuh.sh"
 
-echo "=== Service Integration ==="
 "$APP_DIR/13_service_integration.sh"
 
-echo "=== Monitoring Setup ==="
 "$APP_DIR/14_monitoring.sh"
 
-echo "=== Final Setup ==="
 "$APP_DIR/15_final_setup.sh"
 
 log_info "Security setup completed successfully!"
