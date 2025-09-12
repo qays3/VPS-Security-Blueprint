@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/09_suricata.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -8,7 +7,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 BACKUP_DIR="${BACKUP_DIR:-/root/sec-backups-$(date +%F_%T)}"
 [ -f /tmp/vps_network_vars.sh ] && source /tmp/vps_network_vars.sh
-PRIMARY_IFACE="${PRIMARY_IFACE:-eth0}"
+PRIMARY_IFACE="${PRIMARY_IFACE:-enp0s3}"
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -16,9 +15,21 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Installing and configuring Suricata IPS..."
 
-apt install -y suricata
+apt update
+apt install -y suricata suricata-update
 systemctl stop suricata 2>/dev/null || true
-cp -a /etc/suricata/suricata.yaml "${BACKUP_DIR}/suricata.yaml.bak" || true
+mkdir -p "${BACKUP_DIR}"
+cp -a /etc/suricata/suricata.yaml "${BACKUP_DIR}/suricata.yaml.bak" 2>/dev/null || true
+
+groupadd -f suricata
+useradd -r -g suricata -d /var/lib/suricata -s /sbin/nologin suricata 2>/dev/null || true
+mkdir -p /var/lib/suricata/rules
+mkdir -p /var/log/suricata
+mkdir -p /etc/suricata/rules
+
+chown -R suricata:suricata /var/lib/suricata
+chown -R suricata:suricata /var/log/suricata
+chown -R suricata:suricata /etc/suricata/rules
 
 cat > /etc/suricata/suricata.yaml <<EOF
 %YAML 1.1
@@ -54,6 +65,9 @@ vars:
     TEREDO_PORTS: 3544
 
 default-log-dir: /var/log/suricata/
+default-rule-path: /var/lib/suricata/rules
+rule-files:
+  - suricata.rules
 
 outputs:
   - fast:
@@ -85,6 +99,7 @@ af-packet:
     copy-iface: ${PRIMARY_IFACE}
     buffer-size: 64kb
     use-mmap: yes
+    ring-size: 2048
 
 app-layer:
   protocols:
@@ -103,14 +118,6 @@ app-layer:
       enabled: yes
     dns:
       enabled: yes
-    modbus:
-      enabled: yes
-      detection-ports:
-        dp: 502
-    dnp3:
-      enabled: yes
-      detection-ports:
-        dp: 20000
 
 detect:
   profile: medium
@@ -164,38 +171,53 @@ logging:
         enabled: yes
         level: info
         filename: /var/log/suricata/suricata.log
+
+runmode: workers
 EOF
 
-mkdir -p /var/log/suricata
-chown suricata:suricata /var/log/suricata
-
 SURICATA_DEFAULT="/etc/default/suricata"
-echo "RUN_ARGS=\"-i ${PRIMARY_IFACE} --af-packet\"" > "$SURICATA_DEFAULT"
+echo "RUN=yes" > "$SURICATA_DEFAULT"
+echo "SURRICATA_OPTIONS=\"--af-packet=${PRIMARY_IFACE}\"" >> "$SURICATA_DEFAULT"
 
-if [ ! -f /var/lib/suricata/rules/suricata.rules ] || [ ! -s /var/lib/suricata/rules/suricata.rules ]; then
-    log_warn "No Suricata rules found, downloading basic ruleset..."
-    mkdir -p /var/lib/suricata/rules
-    suricata-update || {
-        wget -q -O /tmp/emerging.rules.tar.gz https://rules.emergingthreats.net/open/suricata-6.0.4/emerging.rules.tar.gz 2>/dev/null || true
-        if [ -f /tmp/emerging.rules.tar.gz ]; then
-            tar -xzf /tmp/emerging.rules.tar.gz -C /var/lib/suricata/rules/ --strip-components=1 2>/dev/null || true
-            rm -f /tmp/emerging.rules.tar.gz
-            log_info "Basic ruleset downloaded"
-        fi
+systemctl stop suricata 2>/dev/null || true
+
+cd /tmp
+if ! suricata-update --no-test 2>/dev/null; then
+    log_warn "suricata-update failed, downloading rules manually..."
+    rm -rf emerging-rules*
+    wget -q https://rules.emergingthreats.net/open/suricata/emerging.rules.tar.gz || {
+        log_error "Failed to download rules"
+        exit 1
     }
+    tar xzf emerging.rules.tar.gz
+    cp emerging-rules/*.rules /var/lib/suricata/rules/
+    cat emerging-rules/*.rules > /var/lib/suricata/rules/suricata.rules
+    rm -rf emerging-rules* emerging.rules.tar.gz
 fi
 
-if suricata -T -c /etc/suricata/suricata.yaml; then
+if [ ! -f /var/lib/suricata/rules/suricata.rules ]; then
+    echo 'alert icmp any any -> $HOME_NET any (msg:"ICMP test"; sid:1; rev:1;)' > /var/lib/suricata/rules/suricata.rules
+fi
+
+chown -R suricata:suricata /var/lib/suricata
+chown -R suricata:suricata /var/log/suricata
+chmod 755 /var/lib/suricata/rules
+chmod 644 /var/lib/suricata/rules/*.rules
+
+if suricata -T -c /etc/suricata/suricata.yaml -S /var/lib/suricata/rules/suricata.rules; then
     systemctl enable suricata
-    systemctl restart suricata
-    sleep 5
+    systemctl start suricata
+    sleep 3
     if systemctl is-active --quiet suricata; then
         log_info "Suricata configured and started successfully"
     else
         log_error "Suricata failed to start after configuration"
-        systemctl status suricata --no-pager -l
+        systemctl status suricata --no-pager
+        journalctl -u suricata --no-pager -l
+        exit 1
     fi
 else
     log_error "Suricata configuration test failed"
+    suricata -T -c /etc/suricata/suricata.yaml -S /var/lib/suricata/rules/suricata.rules -v
     exit 1
 fi
