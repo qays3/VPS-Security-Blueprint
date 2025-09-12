@@ -199,6 +199,8 @@ if [ ! -f /var/lib/suricata/rules/suricata.rules ]; then
     echo 'alert icmp any any -> $HOME_NET any (msg:"ICMP test"; sid:1; rev:1;)' > /var/lib/suricata/rules/suricata.rules
 fi
 
+sed -i '/^alert dnp3/d; /^alert modbus/d' /var/lib/suricata/rules/suricata.rules 2>/dev/null || true
+
 chown -R suricata:suricata /var/lib/suricata
 chown -R suricata:suricata /var/log/suricata
 chmod 755 /var/lib/suricata/rules
