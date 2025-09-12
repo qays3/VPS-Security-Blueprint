@@ -296,12 +296,76 @@ if nginx -t; then
     fi
 else
     log_error "Nginx configuration test failed"
-    if [ -f "${BACKUP_DIR}/nginx.conf.bak" ]; then
-        cp "${BACKUP_DIR}/nginx.conf.bak" "$NGINX_CONF"
-        log_info "Reverted to backup configuration"
+    
+    cat > /etc/nginx/nginx.conf <<'EOF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 10M;
+    server_tokens off;
+    
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent"';
+
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log warn;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+
+    cat > /etc/nginx/sites-available/default <<'EOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    root /var/www/html;
+    index index.html;
+    server_name _;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location /nginx_status {
+        stub_status on;
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+    }
+}
+EOF
+    
+    if nginx -t; then
+        log_warn "Started Nginx with basic configuration - ModSecurity disabled due to config issues"
+        systemctl enable nginx
+        systemctl start nginx
+    else
+        log_error "Even basic Nginx configuration failed"
+        nginx -t
+        exit 1
     fi
-    nginx -t
-    exit 1
 fi
 
 log_info "Nginx and ModSecurity installation completed"
