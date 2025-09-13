@@ -76,13 +76,12 @@ SecDefaultAction "phase:1,log,auditlog,pass"
 SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
-rm -rf /etc/nginx/modsec/crs
-log_info "Downloading OWASP Core Rule Set..."
-git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
-cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
-
-sed -i 's/MULTIPART_PART_HEADERS:_charset_/MULTIPART_PART_HEADERS:\&_charset_/g' /etc/nginx/modsec/crs/rules/REQUEST-922-MULTIPART-ATTACK.conf
-sed -i 's/"!@eq 0"/"@eq 0"/g' /etc/nginx/modsec/crs/rules/REQUEST-922-MULTIPART-ATTACK.conf
+if ! [ -d /etc/nginx/modsec/crs ]; then
+    log_info "Downloading OWASP Core Rule Set..."
+    git clone --depth 1 https://github.com/coreruleset/coreruleset /etc/nginx/modsec/crs
+    cp /etc/nginx/modsec/crs/crs-setup.conf.example /etc/nginx/modsec/crs/crs-setup.conf
+    log_info "OWASP CRS installed"
+fi
 
 cat > /etc/nginx/modsec/main.conf <<'EOF'
 Include /etc/nginx/modsec/modsecurity.conf
