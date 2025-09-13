@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/02_user_setup.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -11,10 +10,10 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_info "Setting up user account..."
+log_info "Setting up low privilege user, so you can login just through this account then you can switch to root user..."
 
 while true; do
-  read -rp "Enter a username for login: " USERNAME
+  read -rp "Enter a username for SSH login: " USERNAME
   if id "$USERNAME" &>/dev/null; then
     log_warn "User exists, choose another."
   else
@@ -23,7 +22,7 @@ while true; do
 done
 
 while true; do
-  read -rsp "Enter a strong password: " PASSWORD
+  read -rsp "Enter a strong password for SSH login: " PASSWORD
   echo
   if [[ ${#PASSWORD} -ge 12 && "$PASSWORD" =~ [A-Z] && "$PASSWORD" =~ [a-z] && "$PASSWORD" =~ [0-9] && "$PASSWORD" =~ [^a-zA-Z0-9] ]]; then
     break
@@ -34,9 +33,8 @@ done
 
 useradd -m -s /bin/bash "$USERNAME"
 echo "$USERNAME:$PASSWORD" | chpasswd
-usermod -aG sudo "$USERNAME"
 
 echo "export USERNAME='$USERNAME'" > /tmp/vps_setup_vars.sh
 echo "export PASSWORD='$PASSWORD'" >> /tmp/vps_setup_vars.sh
 
-log_info "User $USERNAME created successfully"
+log_info "Low privilege user $USERNAME created - can su to root"
