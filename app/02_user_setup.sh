@@ -10,7 +10,14 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_info "Setting up low privilege user, so you can login just through this account then you can switch to root user..."
+echo ""
+log_info "Setting up low privilege user account for SSH access"
+echo ""
+echo "This creates a regular user account that you will use to:"
+echo "  1. Login via SSH (instead of root login)"
+echo "  2. Switch to root user using 'su root' command"
+echo "  3. Maintain security by disabling direct root SSH access"
+echo ""
 
 while true; do
   read -rp "Enter a username for SSH login: " USERNAME
