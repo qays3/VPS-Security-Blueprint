@@ -66,6 +66,49 @@
 
 ![alt text](img/1.png)
 
+
+---
+
+## Quick Start Guide
+
+### Automated Installation
+
+```bash
+git clone https://github.com/qays3/VPS-Security-Blueprint.git
+cd VPS-Security-Blueprint
+
+chmod +x run.sh
+chmod +x SecureVista.sh
+
+sudo ./run.sh -h
+```
+
+### Post-Installation Management
+
+```bash
+sudo SecureVista.sh
+```
+
+**SecureVista Features:**
+- System Dashboard
+- Service Control  
+- IP Management
+- Port Configuration
+- Log Analysis
+- Firewall Rules
+- Network Monitor
+- Backup/Restore
+
+**Command Reference:**
+```bash
+sudo /usr/local/bin/security-status.sh
+sudo /usr/local/bin/SecureVista.sh
+sudo /usr/local/bin/security-sync.sh
+sudo tail -f /var/ossec/logs/alerts/alerts.log
+```
+
+---
+
 ## Purpose & Scope
 
 This blueprint provides comprehensive VPS security hardening through automated deployment of coordinated defense mechanisms. The implementation focuses on creating multiple security layers that communicate and synchronize threat intelligence across all services.
