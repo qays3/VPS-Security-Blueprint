@@ -29,6 +29,10 @@ apt autoremove -y 2>/dev/null || true
 rm -rf /var/ossec /usr/share/wazuh-indexer /etc/wazuh-indexer /etc/filebeat 2>/dev/null || true
 rm -f /tmp/wazuh-install-files.tar /tmp/wazuh-passwords.txt 2>/dev/null || true
 
+log_info "Creating ossec user and group..."
+groupadd ossec 2>/dev/null || true
+useradd -r -g ossec -d /var/ossec -s /sbin/nologin ossec 2>/dev/null || true
+
 log_info "Setting up Wazuh repository..."
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
 chmod 644 /usr/share/keyrings/wazuh.gpg
@@ -37,6 +41,11 @@ apt update
 
 log_info "Installing Wazuh manager only..."
 DEBIAN_FRONTEND=noninteractive apt install -y wazuh-manager
+
+log_info "Setting proper permissions..."
+chown -R ossec:ossec /var/ossec
+chmod -R 750 /var/ossec/etc
+chmod 644 /var/ossec/etc/ossec.conf
 
 log_info "Creating minimal Wazuh configuration..."
 mkdir -p /var/ossec/etc/rules /var/ossec/logs/alerts /var/ossec/active-response/bin
