@@ -15,122 +15,85 @@ log_info "Installing dependencies..."
 apt update
 apt install -y curl gnupg dos2unix libxml2-utils apt-transport-https lsb-release
 
-log_info "Installing and configuring Wazuh..."
-curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
-chmod 644 /usr/share/keyrings/wazuh.gpg
-mkdir -p /etc/apt/sources.list.d
-echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt stable main" | tee /etc/apt/sources.list.d/wazuh.list >/dev/null
+log_info "Setting up Wazuh all-in-one installation..."
+cd /tmp
 
-apt update
-apt install -y wazuh-manager
-
-systemctl daemon-reload
 systemctl stop wazuh-manager 2>/dev/null || true
+systemctl stop wazuh-dashboard 2>/dev/null || true
+systemctl stop wazuh-indexer 2>/dev/null || true
 
-mkdir -p "$BACKUP_DIR"
-cp -a /var/ossec/etc/ossec.conf "${BACKUP_DIR}/ossec.conf.bak" 2>/dev/null || true
+curl -sO https://packages.wazuh.com/4.12/wazuh-install.sh
+curl -sO https://packages.wazuh.com/4.12/config.yml
 
-cat > /var/ossec/etc/ossec.conf <<'WAZUHEOF'
-<ossec_config>
-  <global>
-    <jsonout_output>yes</jsonout_output>
-    <alerts_log>yes</alerts_log>
-    <logall>no</logall>
-    <logall_json>no</logall_json>
-    <email_notification>no</email_notification>
-    <memory_size>128</memory_size>
-    <white_list>127.0.0.1</white_list>
-    <white_list>^localhost.localdomain$</white_list>
-    <white_list>10.0.0.0/8</white_list>
-    <white_list>172.16.0.0/12</white_list>
-    <white_list>192.168.0.0/16</white_list>
-  </global>
+PUBLIC_IP=$(curl -s ipinfo.io/ip 2>/dev/null || echo "127.0.0.1")
+INTERNAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}' 2>/dev/null || echo "127.0.0.1")
 
-  <alerts>
-    <log_alert_level>3</log_alert_level>
-    <email_alert_level>12</email_alert_level>
-  </alerts>
+cat > config.yml <<EOF
+nodes:
+  indexer:
+    - name: node-1
+      ip: "${INTERNAL_IP}"
+  server:
+    - name: wazuh-1
+      ip: "${INTERNAL_IP}"
+  dashboard:
+    - name: dashboard
+      ip: "${INTERNAL_IP}"
+EOF
 
-  <remote>
-    <connection>secure</connection>
-    <port>1514</port>
-    <protocol>tcp</protocol>
-    <queue_size>131072</queue_size>
-  </remote>
+log_info "Generating configuration files..."
+bash wazuh-install.sh --generate-config-files || {
+    log_warn "Config generation failed, using direct installation"
+}
 
-  <logging>
-    <log_format>plain</log_format>
-  </logging>
+log_info "Installing Wazuh all-in-one (this may take 5-10 minutes)..."
+export WAZUH_INSTALL_TYPE="all-in-one"
+timeout 900 bash wazuh-install.sh --all-in-one --accept-license || {
+    log_warn "All-in-one installation may have timed out or failed, checking services..."
+}
 
-  <localfile>
-    <log_format>syslog</log_format>
-    <location>/var/log/auth.log</location>
-  </localfile>
+sleep 10
 
-  <localfile>
-    <log_format>syslog</log_format>
-    <location>/var/log/syslog</location>
-  </localfile>
+log_info "Configuring UFW for Wazuh..."
+ufw allow 1515/tcp >/dev/null 2>&1 || true
+ufw allow 1514/tcp >/dev/null 2>&1 || true
+ufw allow 443/tcp >/dev/null 2>&1 || true
+ufw reload >/dev/null 2>&1 || true
 
-  <localfile>
-    <log_format>apache</log_format>
-    <location>/var/log/nginx/access.log</location>
-  </localfile>
+log_info "Checking Wazuh services status..."
+services=("wazuh-indexer" "wazuh-manager" "wazuh-dashboard")
+active_services=0
 
-  <localfile>
-    <log_format>syslog</log_format>
-    <location>/var/log/fail2ban.log</location>
-  </localfile>
+for service in "${services[@]}"; do
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        log_info "✓ $service is running"
+        active_services=$((active_services + 1))
+    else
+        log_warn "✗ $service is not running"
+        systemctl start "$service" 2>/dev/null || true
+        sleep 5
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            log_info "✓ $service started successfully"
+            active_services=$((active_services + 1))
+        fi
+    fi
+done
 
-  <ruleset>
-    <decoder_dir>ruleset/decoders</decoder_dir>
-    <rule_dir>ruleset/rules</rule_dir>
-    <list>etc/lists/audit-keys</list>
-  </ruleset>
-</ossec_config>
-WAZUHEOF
-
-mkdir -p /var/ossec/logs/alerts /var/ossec/queue/alerts /var/ossec/queue/diff /var/ossec/queue/rids /var/ossec/stats /var/ossec/var/run /var/ossec/etc/rules
-
-cat > /var/ossec/etc/rules/local_rules.xml <<'RULESEOF'
-<group name="local,">
-  <rule id="100001" level="5">
-    <decoded_as>ssh</decoded_as>
-    <match>Failed password|Failed publickey|authentication failure</match>
-    <description>SSH authentication failure</description>
-    <group>authentication_failed,</group>
-  </rule>
-
-  <rule id="100002" level="10">
-    <if_sid>100001</if_sid>
-    <frequency>5</frequency>
-    <timeframe>300</timeframe>
-    <description>SSH brute force attack detected</description>
-    <group>authentication_failures,attack,</group>
-  </rule>
-</group>
-RULESEOF
-
-groupadd ossec 2>/dev/null || true
-useradd -r -s /bin/false -d /var/ossec -g ossec ossec 2>/dev/null || true
-useradd -r -s /bin/false -d /var/ossec -g ossec ossecm 2>/dev/null || true
-useradd -r -s /bin/false -d /var/ossec -g ossec ossecr 2>/dev/null || true
-
-chown -R ossec:ossec /var/ossec/logs /var/ossec/queue /var/ossec/stats /var/ossec/var 2>/dev/null || true
-chown -R root:ossec /var/ossec/etc 2>/dev/null || true
-chmod -R 550 /var/ossec/etc 2>/dev/null || true
-chmod 440 /var/ossec/etc/ossec.conf 2>/dev/null || true
-chmod 440 /var/ossec/etc/rules/local_rules.xml 2>/dev/null || true
-
-systemctl enable wazuh-manager
-systemctl start wazuh-manager
-sleep 15
-
-if systemctl is-active --quiet wazuh-manager; then
-    log_info "Wazuh manager installed and running successfully"
+if [ $active_services -ge 1 ]; then
+    log_info "Wazuh installation completed with $active_services/$services services running"
+    
+    if [ -f /tmp/wazuh-install-files.tar ]; then
+        log_info "Installation files saved to /tmp/wazuh-install-files.tar"
+        log_info "Web interface credentials may be available in installation output above"
+    fi
+    
+    if systemctl is-active --quiet wazuh-dashboard 2>/dev/null; then
+        log_info "Wazuh dashboard should be accessible at: https://${PUBLIC_IP}:443"
+    fi
 else
-    log_warn "Wazuh manager startup failed, checking basic functionality"
-    systemctl status wazuh-manager --no-pager --lines=3
+    log_warn "Wazuh installation completed but services may need manual intervention"
 fi
+
+cd - >/dev/null
 
 log_info "Wazuh installation completed"
