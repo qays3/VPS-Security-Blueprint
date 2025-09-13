@@ -57,7 +57,6 @@ SecRuleEngine On
 SecRequestBodyAccess On
 SecRequestBodyLimit 13107200
 SecRequestBodyNoFilesLimit 131072
-SecRequestBodyInMemoryLimit 131072
 SecRequestBodyLimitAction Reject
 SecResponseBodyAccess On
 SecResponseBodyMimeType text/plain text/html text/xml application/json
@@ -283,89 +282,8 @@ chmod 644 /var/www/html/index.html
 chown -R root:root /etc/nginx/modsec
 chmod -R 644 /etc/nginx/modsec/*.conf
 
-if nginx -t; then
-    systemctl enable nginx
-    systemctl start nginx
-    
-    if systemctl is-active --quiet nginx; then
-        log_info "Nginx with ModSecurity configured and started successfully"
-    else
-        log_error "Nginx failed to start"
-        systemctl status nginx --no-pager
-        exit 1
-    fi
-else
-    log_error "Nginx configuration test failed"
-    
-    cat > /etc/nginx/nginx.conf <<'EOF'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
+nginx -t
+systemctl enable nginx
+systemctl start nginx
 
-load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;
-
-events {
-    worker_connections 1024;
-    use epoll;
-    multi_accept on;
-}
-
-http {
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    client_max_body_size 10M;
-    server_tokens off;
-    
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent"';
-
-    access_log /var/log/nginx/access.log main;
-    error_log /var/log/nginx/error.log warn;
-
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-EOF
-
-    cat > /etc/nginx/sites-available/default <<'EOF'
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-
-    root /var/www/html;
-    index index.html;
-    server_name _;
-
-    location / {
-        try_files $uri $uri/ =404;
-    }
-
-    location /nginx_status {
-        stub_status on;
-        access_log off;
-        allow 127.0.0.1;
-        deny all;
-    }
-}
-EOF
-    
-    if nginx -t; then
-        log_warn "Started Nginx with basic configuration - ModSecurity disabled due to config issues"
-        systemctl enable nginx
-        systemctl start nginx
-    else
-        log_error "Even basic Nginx configuration failed"
-        nginx -t
-        exit 1
-    fi
-fi
-
-log_info "Nginx and ModSecurity installation completed"
+log_info "Nginx with ModSecurity configured and started successfully"

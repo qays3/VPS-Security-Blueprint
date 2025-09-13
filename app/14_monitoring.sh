@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/14_monitoring.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -205,57 +204,4 @@ if command -v ss >/dev/null; then
 fi
 echo ""
 
-echo -e "\${BLUE}=== SECURITY SCORE ===\${NC}"
-score=0
-systemctl is-active --quiet suricata 2>/dev/null && score=\$((score + 20))
-systemctl is-active --quiet fail2ban 2>/dev/null && score=\$((score + 20))
-systemctl is-active --quiet nginx 2>/dev/null && score=\$((score + 15))
-systemctl is-active --quiet wazuh-manager 2>/dev/null && score=\$((score + 15))
-command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active" && score=\$((score + 15))
-[[ \$EUID -eq 0 ]] && iptables -L 2>/dev/null | grep -q "DROP" && score=\$((score + 10))
-[ -f /etc/nginx/modsec/main.conf ] && score=\$((score + 5))
-
-if [ \$score -ge 90 ]; then
-    echo -e "Security Score: \${GREEN}\$score/100 - EXCELLENT\${NC}"
-elif [ \$score -ge 70 ]; then
-    echo -e "Security Score: \${YELLOW}\$score/100 - GOOD\${NC}"
-else
-    echo -e "Security Score: \${RED}\$score/100 - NEEDS IMPROVEMENT\${NC}"
-fi
-
-echo ""
-echo -e "\${CYAN}==========================================\${NC}"
-echo -e "Report generated: \$(date)"
-echo -e "For full functionality, run: sudo \$0"
-echo -e "\${CYAN}==========================================\${NC}"
-EOF
-
-chmod 755 /usr/local/bin/security-status.sh
-
-cat > /etc/logrotate.d/security-logs <<'EOF'
-/var/log/security-sync.log
-/var/log/wazuh-blocks.log {
-    daily
-    missingok
-    rotate 7
-    compress
-    delaycompress
-    notifempty
-    copytruncate
-}
-
-/var/log/suricata/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    postrotate
-        systemctl reload suricata >/dev/null 2>&1 || true
-    endscript
-}
-EOF
-
-log_info "Enhanced monitoring dashboard configured"
-
+echo -e "\${BLUE}

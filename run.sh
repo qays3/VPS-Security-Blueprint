@@ -38,14 +38,11 @@ log_info "Making all scripts executable..."
 find "$APP_DIR" -name "*.sh" -exec chmod +x {} \;
 
 log_info "Starting 01_packages"
-
 "$APP_DIR/01_packages.sh"
-
 
 log_info "Starting 02_user_setup"
 "$APP_DIR/02_user_setup.sh"
 [ -f /tmp/vps_setup_vars.sh ] && source /tmp/vps_setup_vars.sh
-
 
 log_info "Starting 03_ssh_hardening"
 "$APP_DIR/03_ssh_hardening.sh"
@@ -73,10 +70,14 @@ log_info "Starting 10_snort"
 "$APP_DIR/10_snort.sh"
 
 log_info "Starting 11_nginx_modsecurity"
-"$APP_DIR/11_nginx_modsecurity.sh"
+if ! "$APP_DIR/11_nginx_modsecurity.sh"; then
+    log_error "Nginx ModSecurity installation failed, but continuing..."
+fi
 
 log_info "Starting 12_wazuh"
-"$APP_DIR/12_wazuh.sh"
+if ! "$APP_DIR/12_wazuh.sh"; then
+    log_error "Wazuh installation failed, but continuing..."
+fi
 
 log_info "Starting 13_service_integration"
 "$APP_DIR/13_service_integration.sh"
