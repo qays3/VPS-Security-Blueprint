@@ -29,7 +29,10 @@ systemctl stop wazuh-manager || true
 mkdir -p "$BACKUP_DIR"
 cp -a /var/ossec/etc/ossec.conf "${BACKUP_DIR}/ossec.conf.bak" 2>/dev/null || true
 
-cat > /var/ossec/etc/ossec.conf << 'WAZUHEOF'
+rm -f /var/ossec/etc/ossec.conf
+
+cat > /var/ossec/etc/ossec.conf <<'WAZUHEOF'
+<?xml version="1.0" encoding="UTF-8"?>
 <ossec_config>
   <global>
     <jsonout_output>yes</jsonout_output>
@@ -69,11 +72,6 @@ cat > /var/ossec/etc/ossec.conf << 'WAZUHEOF'
   </localfile>
 
   <localfile>
-    <log_format>syslog</log_format>
-    <location>/var/log/kern.log</location>
-  </localfile>
-
-  <localfile>
     <log_format>apache</log_format>
     <location>/var/log/nginx/access.log</location>
   </localfile>
@@ -81,11 +79,6 @@ cat > /var/ossec/etc/ossec.conf << 'WAZUHEOF'
   <localfile>
     <log_format>apache</log_format>
     <location>/var/log/nginx/error.log</location>
-  </localfile>
-
-  <localfile>
-    <log_format>syslog</log_format>
-    <location>/var/log/suricata/eve.json</location>
   </localfile>
 
   <localfile>
@@ -106,13 +99,14 @@ WAZUHEOF
 
 mkdir -p /var/ossec/logs/alerts /var/ossec/queue/alerts /var/ossec/queue/diff /var/ossec/queue/rids /var/ossec/stats /var/ossec/var/run /var/ossec/etc/rules
 
-cat > /var/ossec/etc/rules/local_rules.xml << 'RULESEOF'
+cat > /var/ossec/etc/rules/local_rules.xml <<'RULESEOF'
+<?xml version="1.0" encoding="UTF-8"?>
 <group name="local,">
   <rule id="100001" level="5">
     <decoded_as>ssh</decoded_as>
     <match>Failed password|Failed publickey|authentication failure</match>
     <description>SSH authentication failure</description>
-    <group>authentication_failed,pci_dss_10.2.4,pci_dss_10.2.5,pci_dss_10.6.1,gpg13_7.1,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+    <group>authentication_failed,pci_dss_10.2.4,pci_dss_10.2.5,</group>
   </rule>
 
   <rule id="100002" level="10">
@@ -125,30 +119,31 @@ cat > /var/ossec/etc/rules/local_rules.xml << 'RULESEOF'
 </group>
 RULESEOF
 
-useradd -r -s /bin/false -d /var/ossec -g ossec ossec 2>/dev/null || true
 groupadd ossec 2>/dev/null || true
+useradd -r -s /bin/false -d /var/ossec -g ossec ossec 2>/dev/null || true
+
 chown -R ossec:ossec /var/ossec/logs /var/ossec/queue /var/ossec/stats /var/ossec/var 2>/dev/null || true
 chown -R root:ossec /var/ossec/etc 2>/dev/null || true
 chmod -R 550 /var/ossec/etc 2>/dev/null || true
 chmod 440 /var/ossec/etc/ossec.conf 2>/dev/null || true
 chmod 440 /var/ossec/etc/rules/local_rules.xml 2>/dev/null || true
 
-systemctl enable wazuh-manager || true
-systemctl start wazuh-manager || true
-sleep 5
-
-if systemctl is-active --quiet wazuh-manager; then
-    log_info "Wazuh manager installed and running successfully"
-else
-    log_warn "Wazuh manager startup failed, attempting restart..."
-    systemctl restart wazuh-manager || true
-    sleep 5
+if xmllint --noout /var/ossec/etc/ossec.conf 2>/dev/null; then
+    log_info "Wazuh XML configuration is valid"
+    
+    systemctl enable wazuh-manager || true
+    systemctl start wazuh-manager || true
+    sleep 10
+    
     if systemctl is-active --quiet wazuh-manager; then
-        log_info "Wazuh manager restarted successfully"
+        log_info "Wazuh manager installed and running successfully"
     else
-        log_warn "Wazuh manager still not running, checking logs..."
-        journalctl -u wazuh-manager --lines=20 --no-pager
+        log_warn "Wazuh manager startup failed after XML fix"
+        journalctl -u wazuh-manager --lines=5 --no-pager
     fi
+else
+    log_error "XML configuration is still invalid"
+    xmllint --noout /var/ossec/etc/ossec.conf
 fi
 
 log_info "Wazuh installation completed"
