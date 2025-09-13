@@ -23,11 +23,10 @@ systemctl disable wazuh-manager 2>/dev/null || true
 systemctl disable wazuh-dashboard 2>/dev/null || true
 systemctl disable wazuh-indexer 2>/dev/null || true
 
-apt remove --purge wazuh-manager wazuh-indexer wazuh-dashboard 2>/dev/null || true
+apt remove --purge wazuh-manager -y 2>/dev/null || true
 apt autoremove -y 2>/dev/null || true
 
-rm -rf /var/ossec /usr/share/wazuh-indexer /etc/wazuh-indexer /etc/filebeat 2>/dev/null || true
-rm -f /tmp/wazuh-install-files.tar /tmp/wazuh-passwords.txt 2>/dev/null || true
+rm -rf /var/ossec
 
 log_info "Creating ossec user and group..."
 groupadd ossec 2>/dev/null || true
@@ -39,15 +38,26 @@ chmod 644 /usr/share/keyrings/wazuh.gpg
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
 apt update
 
-log_info "Installing Wazuh manager only..."
+log_info "Installing Wazuh manager..."
 DEBIAN_FRONTEND=noninteractive apt install -y wazuh-manager
 
 log_info "Setting proper permissions..."
 chown -R ossec:ossec /var/ossec
 chmod -R 750 /var/ossec/etc
-chmod 644 /var/ossec/etc/ossec.conf
+systemctl enable wazuh-manager
+systemctl start wazuh-manager
 
-log_info "Creating minimal Wazuh configuration..."
+sleep 5
+
+if systemctl is-active --quiet wazuh-manager; then
+    log_info "Wazuh manager installed and running successfully"
+else
+    log_error "Wazuh manager failed to start"
+    systemctl status wazuh-manager --no-pager
+    exit 1
+fi
+
+log_info "Creating Wazuh configuration..."
 mkdir -p /var/ossec/etc/rules /var/ossec/logs/alerts /var/ossec/active-response/bin
 
 cat > /var/ossec/etc/ossec.conf <<'EOF'
@@ -244,16 +254,14 @@ ufw allow 1515/tcp >/dev/null 2>&1 || true
 ufw allow 1514/tcp >/dev/null 2>&1 || true
 ufw reload >/dev/null 2>&1 || true
 
-log_info "Starting Wazuh manager..."
-systemctl enable wazuh-manager
-systemctl start wazuh-manager
+systemctl restart wazuh-manager
 
-sleep 10
+sleep 5
 
 if systemctl is-active --quiet wazuh-manager; then
-    log_info "Wazuh manager installed and running successfully"
+    log_info "Wazuh installation and configuration completed successfully"
 else
-    log_error "Wazuh manager failed to start"
+    log_error "Wazuh manager failed to start after configuration"
     systemctl status wazuh-manager --no-pager
     exit 1
 fi
