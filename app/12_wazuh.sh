@@ -15,12 +15,15 @@ log_info "Installing dependencies..."
 apt update
 apt install -y curl gnupg dos2unix libxml2-utils apt-transport-https lsb-release
 
-log_info "Setting up Wazuh all-in-one installation..."
-cd /tmp
-
+log_info "Cleaning up previous Wazuh installation..."
 systemctl stop wazuh-manager 2>/dev/null || true
 systemctl stop wazuh-dashboard 2>/dev/null || true
 systemctl stop wazuh-indexer 2>/dev/null || true
+rm -f /tmp/wazuh-install-files.tar
+rm -f /tmp/wazuh-passwords.txt
+
+log_info "Setting up Wazuh all-in-one installation..."
+cd /tmp
 
 curl -sO https://packages.wazuh.com/4.12/wazuh-install.sh
 curl -sO https://packages.wazuh.com/4.12/config.yml
@@ -43,25 +46,17 @@ EOF
 
 log_info "Generating configuration files..."
 bash wazuh-install.sh --generate-config-files || {
-    log_warn "Config generation failed, continuing with installation"
+    log_error "Failed to generate config files"
+    exit 1
 }
 
-log_info "Installing Wazuh all-in-one (this may take 5-10 minutes)..."
-export WAZUH_INSTALL_TYPE="all-in-one"
-timeout 900 bash wazuh-install.sh --all-in-one || {
-    log_warn "All-in-one installation failed or timed out, trying manual installation"
-    
-    log_info "Attempting manual Wazuh installation..."
-    bash wazuh-install.sh --wazuh-indexer node-1 || true
-    sleep 10
-    bash wazuh-install.sh --start-cluster || true
-    sleep 10
-    bash wazuh-install.sh --wazuh-server wazuh-1 || true
-    sleep 10
-    bash wazuh-install.sh --wazuh-dashboard dashboard || true
+log_info "Installing Wazuh all-in-one with overwrite (this may take 10-15 minutes)..."
+timeout 1200 bash wazuh-install.sh --all-in-one --overwrite || {
+    log_error "All-in-one installation failed"
+    exit 1
 }
 
-sleep 15
+sleep 20
 
 log_info "Configuring UFW for Wazuh..."
 ufw allow 1515/tcp >/dev/null 2>&1 || true
@@ -70,16 +65,8 @@ ufw allow 443/tcp >/dev/null 2>&1 || true
 ufw allow 9200/tcp >/dev/null 2>&1 || true
 ufw reload >/dev/null 2>&1 || true
 
-log_info "Starting and enabling Wazuh services..."
-services=("wazuh-indexer" "wazuh-manager" "wazuh-dashboard")
-for service in "${services[@]}"; do
-    systemctl enable "$service" 2>/dev/null || true
-    systemctl start "$service" 2>/dev/null || true
-done
-
-sleep 10
-
 log_info "Checking Wazuh services status..."
+services=("wazuh-indexer" "wazuh-manager" "wazuh-dashboard")
 active_services=0
 
 for service in "${services[@]}"; do
@@ -87,41 +74,27 @@ for service in "${services[@]}"; do
         log_info "✓ $service is running"
         active_services=$((active_services + 1))
     else
-        log_warn "✗ $service is not running, attempting to start..."
-        systemctl restart "$service" 2>/dev/null || true
-        sleep 10
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            log_info "✓ $service started successfully"
-            active_services=$((active_services + 1))
-        else
-            log_warn "✗ $service failed to start"
-            systemctl status "$service" --no-pager --lines=3 || true
-        fi
+        log_warn "✗ $service is not running"
+        systemctl status "$service" --no-pager --lines=2 || true
     fi
 done
 
-if [ $active_services -ge 1 ]; then
-    log_info "Wazuh installation completed with $active_services/3 services running"
+if [ $active_services -eq 3 ]; then
+    log_info "Wazuh installation completed successfully with all 3 services running"
     
-    if [ -f /tmp/wazuh-install-files.tar ]; then
-        log_info "Installation files saved to /tmp/wazuh-install-files.tar"
-        
-        if [ -f /tmp/wazuh-passwords.txt ]; then
-            log_info "Web interface credentials saved to /tmp/wazuh-passwords.txt"
-        fi
+    if [ -f /tmp/wazuh-passwords.txt ]; then
+        log_info "Web interface credentials saved to /tmp/wazuh-passwords.txt"
+        cat /tmp/wazuh-passwords.txt
     fi
     
-    if systemctl is-active --quiet wazuh-dashboard 2>/dev/null; then
-        log_info "Wazuh dashboard should be accessible at: https://${PUBLIC_IP}:443"
-        log_info "Default credentials: admin / admin (check /tmp/wazuh-passwords.txt for generated passwords)"
-    fi
-    
-    if systemctl is-active --quiet wazuh-manager 2>/dev/null; then
-        log_info "Wazuh manager is running and monitoring logs"
-    fi
+    log_info "Wazuh dashboard should be accessible at: https://${PUBLIC_IP}:443"
+    log_info "Default username: admin"
+elif [ $active_services -gt 0 ]; then
+    log_warn "Wazuh partially installed with $active_services/3 services running"
 else
-    log_warn "Wazuh installation completed but no services are running properly"
+    log_error "Wazuh installation failed - no services are running"
     log_info "Check installation logs at: /var/log/wazuh-install.log"
+    exit 1
 fi
 
 cd - >/dev/null
