@@ -31,7 +31,10 @@ systemctl stop wazuh-manager || true
 mkdir -p "$BACKUP_DIR"
 cp -a /var/ossec/etc/ossec.conf "${BACKUP_DIR}/ossec.conf.bak" 2>/dev/null || true
 
-cat > /var/ossec/etc/ossec.conf <<'WAZUHEOF'
+# Completely remove and recreate the configuration
+rm -f /var/ossec/etc/ossec.conf
+
+cat > /var/ossec/etc/ossec.conf << 'WAZUHEOF'
 <ossec_config>
   <global>
     <jsonout_output>yes</jsonout_output>
@@ -43,7 +46,6 @@ cat > /var/ossec/etc/ossec.conf <<'WAZUHEOF'
 
   <alerts>
     <log_alert_level>3</log_alert_level>
-    <email_alert_level>12</email_alert_level>
   </alerts>
 
   <remote>
@@ -51,35 +53,73 @@ cat > /var/ossec/etc/ossec.conf <<'WAZUHEOF'
     <port>1514</port>
     <protocol>tcp</protocol>
   </remote>
-
-  <syscheck>
-    <disabled>yes</disabled>
-  </syscheck>
-
-  <rootcheck>
-    <disabled>yes</disabled>
-  </rootcheck>
 </ossec_config>
 WAZUHEOF
 
-dos2unix /var/ossec/etc/ossec.conf
-xmllint --noout /var/ossec/etc/ossec.conf || { log_error "XML validation failed"; exit 1; }
+# Verify the file was created correctly
+if [ ! -f /var/ossec/etc/ossec.conf ]; then
+    log_error "Failed to create ossec.conf"
+    exit 1
+fi
 
-mkdir -p /var/ossec/logs/alerts /var/ossec/queue/alerts /var/ossec/queue/diff /var/ossec/queue/rids /var/ossec/stats /var/ossec/var/run
+# Check file size
+file_size=$(wc -c < /var/ossec/etc/ossec.conf)
+if [ "$file_size" -lt 100 ]; then
+    log_error "Configuration file is too small, something went wrong"
+    cat /var/ossec/etc/ossec.conf
+    exit 1
+fi
+
+# Convert line endings and validate
+dos2unix /var/ossec/etc/ossec.conf 2>/dev/null || true
+
+# Test XML validity
+if ! xmllint --noout /var/ossec/etc/ossec.conf 2>/dev/null; then
+    log_error "XML validation failed"
+    log_error "File contents:"
+    cat /var/ossec/etc/ossec.conf
+    exit 1
+fi
+
+# Set up directories and permissions
+mkdir -p /var/ossec/logs/alerts /var/ossec/queue/alerts /var/ossec/queue/diff /var/ossec/queue/rids /var/ossec/stats /var/ossec/var/run /var/ossec/etc/rules
+
+# Create a minimal local rules file
+cat > /var/ossec/etc/rules/local_rules.xml << 'RULESEOF'
+<group name="local,">
+</group>
+RULESEOF
 
 chown -R ossec:ossec /var/ossec/logs /var/ossec/queue /var/ossec/stats /var/ossec/var
 chown -R root:ossec /var/ossec/etc
 chmod -R 550 /var/ossec/etc
 chmod 440 /var/ossec/etc/ossec.conf
+chmod 440 /var/ossec/etc/rules/local_rules.xml
 
+# Test the configuration before starting
+log_info "Testing Wazuh configuration..."
+if /var/ossec/bin/wazuh-control start 2>/dev/null; then
+    sleep 2
+    /var/ossec/bin/wazuh-control stop
+    log_info "Configuration test passed"
+else
+    log_error "Wazuh control test failed"
+    exit 1
+fi
+
+# Start the service
+log_info "Starting Wazuh manager..."
 systemctl start wazuh-manager
 
+# Wait and check if it started successfully
+sleep 5
 if systemctl is-active --quiet wazuh-manager; then
     log_info "Wazuh manager installed and running successfully"
 else
     log_error "Wazuh manager failed to start"
-    systemctl status wazuh-manager
-    journalctl -xeu wazuh-manager.service
+    systemctl status wazuh-manager --no-pager -l
+    journalctl -u wazuh-manager --no-pager -l | tail -20
+    exit 1
 fi
 
-log_info "Wazuh installation completed"
+log_info "Wazuh installation completed successfully"
