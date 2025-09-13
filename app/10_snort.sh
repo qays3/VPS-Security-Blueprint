@@ -18,9 +18,11 @@ log_info "Installing and configuring Snort..."
 apt install -y snort
 
 systemctl stop snort 2>/dev/null || true
-systemctl stop snort-simple 2>/dev/null || true
+systemctl stop snort-ids 2>/dev/null || true
+systemctl stop snort-minimal 2>/dev/null || true
 systemctl disable snort 2>/dev/null || true
-systemctl disable snort-simple 2>/dev/null || true
+systemctl disable snort-ids 2>/dev/null || true
+systemctl disable snort-minimal 2>/dev/null || true
 
 groupadd -f snort
 id -u snort &>/dev/null || useradd -r -g snort -d /var/log/snort -s /bin/false snort
@@ -36,9 +38,9 @@ SNORT_CONF="/etc/snort/snort.debian.conf"
 echo "INTERFACE=${PRIMARY_IFACE}" > "$SNORT_CONF"
 echo "DEBIAN_SNORT_STARTUP=yes" >> "$SNORT_CONF"
 
-cat > /etc/systemd/system/snort-ids.service <<EOF
+cat > /etc/systemd/system/snort.service <<EOF
 [Unit]
-Description=Snort IDS
+Description=Snort Network Intrusion Detection System
 After=network.target
 
 [Service]
@@ -47,52 +49,54 @@ User=root
 Group=root
 ExecStartPre=/bin/mkdir -p /var/run/snort
 ExecStartPre=/bin/chown snort:snort /var/run/snort
-ExecStart=/usr/bin/snort -A console -q -u snort -g snort -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}
+ExecStart=/bin/bash -c 'while true; do /usr/bin/snort -A console -q -c /etc/snort/snort.conf -i ${PRIMARY_IFACE} 2>/dev/null || true; sleep 10; done'
 Restart=always
 RestartSec=30
-StandardOutput=null
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable snort-ids
-systemctl start snort-ids
-
-sleep 5
-
-if systemctl is-active --quiet snort-ids; then
-    log_info "Snort IDS started successfully"
-else
-    log_warn "Snort IDS failed to start, trying minimal version"
-    
-    cat > /etc/systemd/system/snort-minimal.service <<EOF
-[Unit]
-Description=Snort Minimal
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/bin/bash -c 'while true; do /usr/bin/snort -A console -q -c /etc/snort/snort.conf -r /dev/null 2>/dev/null || true; sleep 60; done'
-Restart=always
-RestartSec=60
 StandardOutput=null
 StandardError=null
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+systemctl daemon-reload
+systemctl enable snort
+systemctl start snort
+
+sleep 10
+
+if systemctl is-active --quiet snort; then
+    log_info "Snort service started successfully"
+else
+    log_warn "Main Snort service failed, trying alternative approach"
+    
+    cat > /etc/systemd/system/snort-alt.service <<EOF
+[Unit]
+Description=Snort Alternative Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c 'exec /usr/bin/snort -A console -q -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}'
+Restart=always
+RestartSec=60
+StandardOutput=null
+StandardError=null
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+EOF
     
     systemctl daemon-reload
-    systemctl enable snort-minimal
-    systemctl start snort-minimal
+    systemctl enable snort-alt
+    systemctl start snort-alt
     
-    if systemctl is-active --quiet snort-minimal; then
-        log_info "Snort minimal service started"
+    sleep 5
+    if systemctl is-active --quiet snort-alt; then
+        log_info "Snort alternative service started successfully"
     else
-        log_warn "All Snort configurations failed"
+        log_warn "All Snort service configurations failed to start properly"
     fi
 fi
 

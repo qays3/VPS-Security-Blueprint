@@ -46,14 +46,48 @@ echo -e "Public IP: $(curl -s ipinfo.io/ip 2>/dev/null || echo 'Unable to detect
 echo ""
 
 echo -e "${BLUE}=== CORE SERVICES STATUS ===${NC}"
-services=("suricata" "snort" "fail2ban" "nginx" "wazuh-manager" "ssh" "ufw")
-for service in "${services[@]}"; do
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        echo -e "✓ $service: ${GREEN}ACTIVE${NC}"
-    else
-        echo -e "✗ $service: ${RED}INACTIVE${NC}"
-    fi
-done
+
+if systemctl is-active --quiet suricata 2>/dev/null; then
+    echo -e "✓ suricata: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ suricata: ${RED}INACTIVE${NC}"
+fi
+
+if systemctl is-active --quiet snort 2>/dev/null || systemctl is-active --quiet snort-alt 2>/dev/null || systemctl is-active --quiet snort-ids 2>/dev/null || systemctl is-active --quiet snort-minimal 2>/dev/null; then
+    echo -e "✓ snort: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ snort: ${RED}INACTIVE${NC}"
+fi
+
+if systemctl is-active --quiet fail2ban 2>/dev/null; then
+    echo -e "✓ fail2ban: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ fail2ban: ${RED}INACTIVE${NC}"
+fi
+
+if systemctl is-active --quiet nginx 2>/dev/null; then
+    echo -e "✓ nginx: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ nginx: ${RED}INACTIVE${NC}"
+fi
+
+if systemctl is-active --quiet wazuh-manager 2>/dev/null; then
+    echo -e "✓ wazuh-manager: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ wazuh-manager: ${RED}INACTIVE${NC}"
+fi
+
+if systemctl is-active --quiet ssh 2>/dev/null; then
+    echo -e "✓ ssh: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ ssh: ${RED}INACTIVE${NC}"
+fi
+
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    echo -e "✓ ufw: ${GREEN}ACTIVE${NC}"
+else
+    echo -e "✗ ufw: ${RED}INACTIVE${NC}"
+fi
 echo ""
 
 echo -e "${BLUE}=== FIREWALL STATUS ===${NC}"
@@ -94,7 +128,7 @@ else
     echo -e "✗ Suricata IPS: ${RED}STOPPED${NC}"
 fi
 
-if systemctl is-active --quiet snort 2>/dev/null; then
+if systemctl is-active --quiet snort 2>/dev/null || systemctl is-active --quiet snort-alt 2>/dev/null || systemctl is-active --quiet snort-ids 2>/dev/null || systemctl is-active --quiet snort-minimal 2>/dev/null; then
     echo -e "✓ Snort IDS: ${GREEN}RUNNING${NC}"
 else
     echo -e "✗ Snort IDS: ${RED}STOPPED${NC}"
@@ -212,7 +246,7 @@ systemctl is-active --quiet nginx 2>/dev/null && score=$((score + 15))
 systemctl is-active --quiet wazuh-manager 2>/dev/null && score=$((score + 15))
 command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active" && score=$((score + 15))
 [[ $EUID -eq 0 ]] && iptables -L 2>/dev/null | grep -q "DROP" && score=$((score + 10))
-[ -f /etc/nginx/modsec/main.conf ] && score=$((score + 5))
+(systemctl is-active --quiet snort 2>/dev/null || systemctl is-active --quiet snort-alt 2>/dev/null || systemctl is-active --quiet snort-ids 2>/dev/null || systemctl is-active --quiet snort-minimal 2>/dev/null) && score=$((score + 5))
 
 if [ $score -ge 90 ]; then
     echo -e "Security Score: ${GREEN}$score/100 - EXCELLENT${NC}"
