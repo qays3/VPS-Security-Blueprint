@@ -19,84 +19,234 @@ log_info "Cleaning up previous Wazuh installation..."
 systemctl stop wazuh-manager 2>/dev/null || true
 systemctl stop wazuh-dashboard 2>/dev/null || true
 systemctl stop wazuh-indexer 2>/dev/null || true
-rm -f /tmp/wazuh-install-files.tar
-rm -f /tmp/wazuh-passwords.txt
+systemctl disable wazuh-manager 2>/dev/null || true
+systemctl disable wazuh-dashboard 2>/dev/null || true
+systemctl disable wazuh-indexer 2>/dev/null || true
 
-log_info "Setting up Wazuh all-in-one installation..."
-cd /tmp
+apt remove --purge wazuh-manager wazuh-indexer wazuh-dashboard 2>/dev/null || true
+apt autoremove -y 2>/dev/null || true
 
-curl -sO https://packages.wazuh.com/4.12/wazuh-install.sh
-curl -sO https://packages.wazuh.com/4.12/config.yml
+rm -rf /var/ossec /usr/share/wazuh-indexer /etc/wazuh-indexer /etc/filebeat 2>/dev/null || true
+rm -f /tmp/wazuh-install-files.tar /tmp/wazuh-passwords.txt 2>/dev/null || true
 
-PUBLIC_IP=$(curl -s ipinfo.io/ip 2>/dev/null || echo "127.0.0.1")
-INTERNAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}' 2>/dev/null || echo "127.0.0.1")
+log_info "Setting up Wazuh repository..."
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+chmod 644 /usr/share/keyrings/wazuh.gpg
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
+apt update
 
-cat > config.yml <<EOF
-nodes:
-  indexer:
-    - name: node-1
-      ip: "${INTERNAL_IP}"
-  server:
-    - name: wazuh-1
-      ip: "${INTERNAL_IP}"
-  dashboard:
-    - name: dashboard
-      ip: "${INTERNAL_IP}"
+log_info "Installing Wazuh manager only..."
+DEBIAN_FRONTEND=noninteractive apt install -y wazuh-manager
+
+log_info "Creating minimal Wazuh configuration..."
+mkdir -p /var/ossec/etc/rules /var/ossec/logs/alerts /var/ossec/active-response/bin
+
+cat > /var/ossec/etc/ossec.conf <<'EOF'
+<ossec_config>
+  <global>
+    <jsonout_output>yes</jsonout_output>
+    <alerts_log>yes</alerts_log>
+    <logall>no</logall>
+    <logall_json>no</logall_json>
+    <email_notification>no</email_notification>
+    <smtp_server>localhost</smtp_server>
+    <email_from>ossecm@localhost</email_from>
+    <email_to>recipient@localhost</email_to>
+    <hostname>wazuh-server</hostname>
+  </global>
+
+  <rules>
+    <include>rules_config.xml</include>
+    <include>pam_rules.xml</include>
+    <include>sshd_rules.xml</include>
+    <include>telnetd_rules.xml</include>
+    <include>syslog_rules.xml</include>
+    <include>arpwatch_rules.xml</include>
+    <include>symantec-av_rules.xml</include>
+    <include>symantec-ws_rules.xml</include>
+    <include>pix_rules.xml</include>
+    <include>named_rules.xml</include>
+    <include>smbd_rules.xml</include>
+    <include>vsftpd_rules.xml</include>
+    <include>pure-ftpd_rules.xml</include>
+    <include>proftpd_rules.xml</include>
+    <include>ms_ftpd_rules.xml</include>
+    <include>ftpd_rules.xml</include>
+    <include>hordeimp_rules.xml</include>
+    <include>roundcube_rules.xml</include>
+    <include>wordpress_rules.xml</include>
+    <include>cimserver_rules.xml</include>
+    <include>vpopmail_rules.xml</include>
+    <include>vmpop3d_rules.xml</include>
+    <include>courier_rules.xml</include>
+    <include>web_rules.xml</include>
+    <include>web_appsec_rules.xml</include>
+    <include>apache_rules.xml</include>
+    <include>nginx_rules.xml</include>
+    <include>php_rules.xml</include>
+    <include>mysql_rules.xml</include>
+    <include>postgresql_rules.xml</include>
+    <include>ids_rules.xml</include>
+    <include>squid_rules.xml</include>
+    <include>firewall_rules.xml</include>
+    <include>cisco-ios_rules.xml</include>
+    <include>netscreenfw_rules.xml</include>
+    <include>sonicwall_rules.xml</include>
+    <include>postfix_rules.xml</include>
+    <include>sendmail_rules.xml</include>
+    <include>imapd_rules.xml</include>
+    <include>mailscanner_rules.xml</include>
+    <include>dovecot_rules.xml</include>
+    <include>ms-exchange_rules.xml</include>
+    <include>racoon_rules.xml</include>
+    <include>vpn_concentrator_rules.xml</include>
+    <include>spamd_rules.xml</include>
+    <include>msauth_rules.xml</include>
+    <include>mcafee_av_rules.xml</include>
+    <include>trend-osce_rules.xml</include>
+    <include>ms-se_rules.xml</include>
+    <include>zeus_rules.xml</include>
+    <include>solaris_bsm_rules.xml</include>
+    <include>vmware_rules.xml</include>
+    <include>ms_dhcp_rules.xml</include>
+    <include>asterisk_rules.xml</include>
+    <include>ossec_rules.xml</include>
+    <include>attack_rules.xml</include>
+    <include>local_rules.xml</include>
+  </rules>
+
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>43200</frequency>
+    <scan_on_start>yes</scan_on_start>
+    <directories>/etc,/usr/bin,/usr/sbin</directories>
+    <directories>/bin,/sbin</directories>
+  </syscheck>
+
+  <rootcheck>
+    <disabled>no</disabled>
+    <check_files>yes</check_files>
+    <check_trojans>yes</check_trojans>
+    <check_dev>yes</check_dev>
+    <check_sys>yes</check_sys>
+    <check_pids>yes</check_pids>
+    <check_ports>yes</check_ports>
+    <check_if>yes</check_if>
+    <frequency>43200</frequency>
+    <rootkit_files>/var/ossec/etc/rootcheck/rootkit_files.txt</rootkit_files>
+    <rootkit_trojans>/var/ossec/etc/rootcheck/rootkit_trojans.txt</rootkit_trojans>
+  </rootcheck>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/syslog</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/dpkg.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>apache</log_format>
+    <location>/var/log/nginx/access.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>apache</log_format>
+    <location>/var/log/nginx/error.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/fail2ban.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/suricata/fast.log</location>
+  </localfile>
+
+  <active-response>
+    <disabled>no</disabled>
+    <ca_store>/var/ossec/etc/wpk_root.pem</ca_store>
+    <ca_verification>yes</ca_verification>
+  </active-response>
+
+</ossec_config>
 EOF
 
-log_info "Generating configuration files..."
-bash wazuh-install.sh --generate-config-files || {
-    log_error "Failed to generate config files"
-    exit 1
-}
+cat > /var/ossec/etc/rules/local_rules.xml <<'EOF'
+<group name="local,syslog,">
+  <rule id="100001" level="10">
+    <if_sid>1002</if_sid>
+    <match>fail2ban.actions</match>
+    <regex>Ban (\S+)</regex>
+    <description>Fail2ban banned IP address: $(regex)</description>
+    <group>authentication_failed,</group>
+  </rule>
 
-log_info "Installing Wazuh all-in-one with overwrite (this may take 10-15 minutes)..."
-timeout 1200 bash wazuh-install.sh --all-in-one --overwrite || {
-    log_error "All-in-one installation failed"
-    exit 1
-}
+  <rule id="100002" level="12">
+    <if_sid>1002</if_sid>
+    <match>suricata</match>
+    <regex>ATTACK|MALWARE|TROJAN|EXPLOIT</regex>
+    <description>Suricata detected attack: $(regex)</description>
+    <group>ids,intrusion_attempt,</group>
+  </rule>
 
-sleep 20
+  <rule id="100003" level="10">
+    <if_sid>1002</if_sid>
+    <match>ModSecurity</match>
+    <regex>Access denied</regex>
+    <description>ModSecurity blocked web attack</description>
+    <group>web,attack,</group>
+  </rule>
+
+  <rule id="100004" level="15">
+    <if_sid>100001,100002,100003</if_sid>
+    <frequency>3</frequency>
+    <timeframe>300</timeframe>
+    <description>Multiple security alerts from same source</description>
+    <group>multiple_attacks,</group>
+  </rule>
+
+  <rule id="100005" level="8">
+    <if_sid>1002</if_sid>
+    <match>nginx</match>
+    <regex>rate.limiting</regex>
+    <description>Nginx rate limiting triggered</description>
+    <group>web,dos_attack,</group>
+  </rule>
+</group>
+EOF
+
+chown -R ossec:ossec /var/ossec
+chmod -R 750 /var/ossec/etc
+chmod 644 /var/ossec/etc/ossec.conf
+chmod 644 /var/ossec/etc/rules/local_rules.xml
 
 log_info "Configuring UFW for Wazuh..."
 ufw allow 1515/tcp >/dev/null 2>&1 || true
 ufw allow 1514/tcp >/dev/null 2>&1 || true
-ufw allow 443/tcp >/dev/null 2>&1 || true
-ufw allow 9200/tcp >/dev/null 2>&1 || true
 ufw reload >/dev/null 2>&1 || true
 
-log_info "Checking Wazuh services status..."
-services=("wazuh-indexer" "wazuh-manager" "wazuh-dashboard")
-active_services=0
+log_info "Starting Wazuh manager..."
+systemctl enable wazuh-manager
+systemctl start wazuh-manager
 
-for service in "${services[@]}"; do
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        log_info "✓ $service is running"
-        active_services=$((active_services + 1))
-    else
-        log_warn "✗ $service is not running"
-        systemctl status "$service" --no-pager --lines=2 || true
-    fi
-done
+sleep 10
 
-if [ $active_services -eq 3 ]; then
-    log_info "Wazuh installation completed successfully with all 3 services running"
-    
-    if [ -f /tmp/wazuh-passwords.txt ]; then
-        log_info "Web interface credentials saved to /tmp/wazuh-passwords.txt"
-        cat /tmp/wazuh-passwords.txt
-    fi
-    
-    log_info "Wazuh dashboard should be accessible at: https://${PUBLIC_IP}:443"
-    log_info "Default username: admin"
-elif [ $active_services -gt 0 ]; then
-    log_warn "Wazuh partially installed with $active_services/3 services running"
+if systemctl is-active --quiet wazuh-manager; then
+    log_info "Wazuh manager installed and running successfully"
 else
-    log_error "Wazuh installation failed - no services are running"
-    log_info "Check installation logs at: /var/log/wazuh-install.log"
+    log_error "Wazuh manager failed to start"
+    systemctl status wazuh-manager --no-pager
     exit 1
 fi
-
-cd - >/dev/null
 
 log_info "Wazuh installation completed"
