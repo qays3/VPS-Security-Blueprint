@@ -101,20 +101,6 @@ cat > /var/ossec/etc/ossec.conf << 'WAZUHEOF'
     <list>etc/lists/amazon/aws-eventnames</list>
     <list>etc/lists/security-eventchannel</list>
   </ruleset>
-
-  <authd>
-    <disabled>no</disabled>
-    <port>1515</port>
-    <use_source_ip>yes</use_source_ip>
-    <purge>yes</purge>
-    <use_password>no</use_password>
-    <ciphers>HIGH:!ADH:!EXP:!MD5:!RC4:!3DES:!CAMELLIA:@STRENGTH</ciphers>
-    <ssl_agent_ca>etc/wpk_root.pem</ssl_agent_ca>
-    <ssl_verify_host>no</ssl_verify_host>
-    <ssl_manager_cert>etc/manager.cert</ssl_manager_cert>
-    <ssl_manager_key>etc/manager.key</ssl_manager_key>
-    <ssl_auto_negotiate>no</ssl_auto_negotiate>
-  </authd>
 </ossec_config>
 WAZUHEOF
 

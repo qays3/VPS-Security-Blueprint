@@ -57,7 +57,6 @@ SecRuleEngine On
 SecRequestBodyAccess On
 SecRequestBodyLimit 13107200
 SecRequestBodyNoFilesLimit 131072
-SecRequestBodyInMemoryLimit 131072
 SecRequestBodyLimitAction Reject
 SecResponseBodyAccess On
 SecResponseBodyMimeType text/plain text/html text/xml application/json
@@ -293,7 +292,7 @@ if nginx -t; then
         exit 1
     fi
 else
-    log_error "Nginx configuration test failed, trying basic config"
+    log_error "Nginx configuration test failed, starting basic config without ModSecurity"
     
     cat > /etc/nginx/sites-available/default <<'EOF'
 server {
@@ -303,6 +302,11 @@ server {
     root /var/www/html;
     index index.html;
     server_name _;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    server_tokens off;
 
     location / {
         try_files $uri $uri/ =404;
@@ -318,7 +322,7 @@ server {
 EOF
     
     if nginx -t; then
-        log_warn "Started Nginx with basic configuration - ModSecurity disabled due to config issues"
+        log_warn "Started Nginx with basic configuration - ModSecurity disabled"
         systemctl enable nginx
         systemctl start nginx
     else
