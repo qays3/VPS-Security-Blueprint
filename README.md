@@ -64,6 +64,8 @@
 
 ---
 
+![alt text](img/1.png)
+
 ## Purpose & Scope
 
 This blueprint provides comprehensive VPS security hardening through automated deployment of coordinated defense mechanisms. The implementation focuses on creating multiple security layers that communicate and synchronize threat intelligence across all services.
