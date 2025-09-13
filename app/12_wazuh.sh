@@ -116,13 +116,10 @@ chown -R root:ossec /var/ossec/etc
 chmod -R 550 /var/ossec/etc
 chmod 440 /var/ossec/etc/ossec.conf
 
-/var/ossec/bin/ossec-control enable database
-/var/ossec/bin/ossec-control start
-
 systemctl daemon-reload
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-echo "Wazuh configuration fixed. Checking status..."
-sleep 5
-systemctl status wazuh-manager
+echo "Fixed Wazuh XML configuration. Status:"
+sleep 3
+systemctl status wazuh-manager --no-pager
