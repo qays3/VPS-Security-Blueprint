@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/10_snort.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -18,6 +17,12 @@ log_info "Installing and configuring Snort..."
 
 apt install -y snort
 
+groupadd -f snort
+useradd -r -g snort -d /var/log/snort -s /bin/false snort 2>/dev/null || true
+
+mkdir -p /var/log/snort
+chown -R snort:snort /var/log/snort
+
 SNORT_CONF="/etc/snort/snort.debian.conf"
 if [ -f "$SNORT_CONF" ]; then
   cp -a "$SNORT_CONF" "${BACKUP_DIR}/snort.debian.conf.bak"
@@ -34,12 +39,27 @@ After=syslog.target network.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/snort -A fast -b -d -D -i ${PRIMARY_IFACE} -u snort -g snort -c /etc/snort/snort.conf -l /var/log/snort
-ExecStop=/bin/kill -9 \$MAINPID
+ExecStop=/bin/kill \$MAINPID
+Restart=always
+RestartSec=10
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl enable snort || log_warn "Failed to enable Snort"
-systemctl start snort || log_warn "Failed to start Snort"
+systemctl daemon-reload
+systemctl enable snort
+systemctl start snort
+sleep 3
+
+if systemctl is-active --quiet snort; then
+    log_info "Snort started successfully"
+else
+    log_warn "Snort failed to start, checking configuration..."
+    systemctl status snort --no-pager
+    journalctl -u snort --lines=10 --no-pager
+fi
+
 log_info "Snort installation completed"

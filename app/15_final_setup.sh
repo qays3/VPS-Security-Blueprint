@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/15_final_setup.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -82,86 +81,6 @@ Run 'security-status.sh' to view current system status.
 EOF
 
 rm -f /tmp/vps_setup_vars.sh /tmp/vps_network_vars.sh
-
-echo ""
-log_info "Security setup completed successfully!"
-log_info "Summary saved to: /root/SECURITY_README_${TIMESTAMP}.txt"
-log_info "Run '/usr/local/bin/security-status.sh' to check system status."
-log_info "Remember to take a VPS snapshot now!"
-
-echo ""
-log_warn "IMPORTANT: Test SSH login with user '$USERNAME' before closing this session!"
-echo -e "${GREEN}Setup completed at: $(date)${NC}"
-- Comprehensive logging and monitoring
-
-=== Management Commands ===
-- Check security status: /usr/local/bin/security-status.sh
-- View Wazuh alerts: tail -f /var/ossec/logs/alerts/alerts.log
-- View banned IPs: iptables -L INPUT -n | grep DROP
-- Fail2ban status: fail2ban-client status
-- Suricata stats: suricata-sc -c stats
-
-=== Log Locations ===
-- Suricata: /var/log/suricata/
-- Nginx: /var/log/nginx/
-- Fail2ban: /var/log/fail2ban.log
-- Wazuh: /var/ossec/logs/
-- Security sync: /var/log/security-sync.log
-- Blocked IPs: /var/log/wazuh-blocks.log
-
-=== Configuration Backups ===
-All original configurations backed up to: ${BACKUP_DIR}
-
-=== Notes ===
-- IP synchronization runs every 5 minutes via cron
-- Active response automatically blocks attacking IPs
-- All logs are centralized in Wazuh for analysis
-- ModSecurity actively blocks web attacks
-- System optimized for high-performance security monitoring
-
-Run 'security-status.sh' to view current system status.
-EOF
-
-rm -f /tmp/vps_setup_vars.sh /tmp/vps_network_vars.sh
-
-echo ""
-log_info "Security setup completed successfully!"
-log_info "Summary saved to: /root/SECURITY_README_${TIMESTAMP}.txt"
-log_info "Run '/usr/local/bin/security-status.sh' to check system status."
-log_info "Remember to take a VPS snapshot now!"
-
-echo ""
-log_warn "IMPORTANT: Test SSH login with user '$USERNAME' before closing this session!"
-echo -e "${GREEN}Setup completed at: $(date)${NC}"
-- Comprehensive logging and monitoring
-
-=== Management Commands ===
-- Check security status: /usr/local/bin/security-status.sh
-- View Wazuh alerts: tail -f /var/ossec/logs/alerts/alerts.log
-- View banned IPs: iptables -L INPUT -n | grep DROP
-- Fail2ban status: fail2ban-client status
-- Suricata stats: suricata-sc -c stats
-
-=== Log Locations ===
-- Suricata: /var/log/suricata/
-- Nginx: /var/log/nginx/
-- Fail2ban: /var/log/fail2ban.log
-- Wazuh: /var/ossec/logs/
-- Security sync: /var/log/security-sync.log
-- Blocked IPs: /var/log/wazuh-blocks.log
-
-=== Configuration Backups ===
-All original configurations backed up to: ${BACKUP_DIR}
-
-=== Notes ===
-- IP synchronization runs every 5 minutes via cron
-- Active response automatically blocks attacking IPs
-- All logs are centralized in Wazuh for analysis
-- ModSecurity actively blocks web attacks
-- System optimized for high-performance security monitoring
-
-Run 'security-status.sh' to view current system status.
-EOF
 
 echo ""
 log_info "Security setup completed successfully!"

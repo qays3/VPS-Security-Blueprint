@@ -57,6 +57,7 @@ SecRuleEngine On
 SecRequestBodyAccess On
 SecRequestBodyLimit 13107200
 SecRequestBodyNoFilesLimit 131072
+SecRequestBodyInMemoryLimit 131072
 SecRequestBodyLimitAction Reject
 SecResponseBodyAccess On
 SecResponseBodyMimeType text/plain text/html text/xml application/json
@@ -72,8 +73,6 @@ SecAuditLog /var/log/nginx/modsec_audit.log
 SecArgumentSeparator &
 SecCookieFormat 0
 SecStatusEngine On
-SecDefaultAction "phase:1,log,auditlog,pass"
-SecDefaultAction "phase:2,log,auditlog,pass"
 EOF
 
 if ! [ -d /etc/nginx/modsec/crs ]; then
@@ -282,8 +281,51 @@ chmod 644 /var/www/html/index.html
 chown -R root:root /etc/nginx/modsec
 chmod -R 644 /etc/nginx/modsec/*.conf
 
-nginx -t
-systemctl enable nginx
-systemctl start nginx
+if nginx -t; then
+    systemctl enable nginx
+    systemctl start nginx
+    
+    if systemctl is-active --quiet nginx; then
+        log_info "Nginx with ModSecurity configured and started successfully"
+    else
+        log_error "Nginx failed to start"
+        systemctl status nginx --no-pager
+        exit 1
+    fi
+else
+    log_error "Nginx configuration test failed, trying basic config"
+    
+    cat > /etc/nginx/sites-available/default <<'EOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
 
-log_info "Nginx with ModSecurity configured and started successfully"
+    root /var/www/html;
+    index index.html;
+    server_name _;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location /nginx_status {
+        stub_status on;
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+    }
+}
+EOF
+    
+    if nginx -t; then
+        log_warn "Started Nginx with basic configuration - ModSecurity disabled due to config issues"
+        systemctl enable nginx
+        systemctl start nginx
+    else
+        log_error "Even basic Nginx configuration failed"
+        nginx -t
+        exit 1
+    fi
+fi
+
+log_info "Nginx and ModSecurity installation completed"
