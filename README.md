@@ -64,7 +64,7 @@
 
 ---
 
-![alt text](img/1.png)
+![alt text](img/Dashboard.png)
 
 
 ---
