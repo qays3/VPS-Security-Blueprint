@@ -49,6 +49,24 @@ filter = nginx-http-auth
 logpath = /var/log/nginx/error.log
 maxretry = 3
 
+[nginx-dos]
+enabled = true
+filter = nginx-dos
+logpath = /var/log/nginx/access.log
+maxretry = 100
+findtime = 60
+bantime = 600
+action = ufw
+
+[nginx-req-limit]
+enabled = true
+filter = nginx-req-limit
+action = ufw
+logpath = /var/log/nginx/access.log
+maxretry = 10
+findtime = 60
+bantime = 600
+
 [nginx-noscript]
 enabled = true
 port = http,https
@@ -83,6 +101,18 @@ filter = suricata
 logpath = /var/log/suricata/fast.log
 maxretry = 1
 bantime = 86400
+EOF
+
+cat > /etc/fail2ban/filter.d/nginx-dos.conf <<'EOF'
+[Definition]
+failregex = ^<HOST> -.*"(GET|POST).*HTTP.*" (200|404|405)
+ignoreregex =
+EOF
+
+cat > /etc/fail2ban/filter.d/nginx-req-limit.conf <<'EOF'
+[Definition]
+failregex = ^<HOST> -.*"(GET|POST|HEAD).*HTTP.*" (429|444)
+ignoreregex =
 EOF
 
 cat > /etc/fail2ban/filter.d/suricata.conf <<'EOF'
