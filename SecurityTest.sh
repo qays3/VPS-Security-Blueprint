@@ -21,9 +21,10 @@ fi
 
 get_target_config() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              ${PURPLE}Target Configuration${CYAN}               ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║    ${PURPLE}Target Configuration${CYAN}               ║${NC}"
+    echo -e "${CYAN}║   ${PURPLE}Run this on attacker vm to test${CYAN}     ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     read -p "Enter target IP address: " TARGET_IP
