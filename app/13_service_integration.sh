@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# File: app/13_service_integration.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -102,7 +101,7 @@ validate_ip() {
                 return 1
             fi
         done
-        if [[ ! "$ip" =~ ^(10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|192\.168\.|127\.|0\.|169\.254\.) ]]; then
+        if [[ ! "$ip" =~ ^(127\.|0\.) ]]; then
             return 0
         fi
     fi
