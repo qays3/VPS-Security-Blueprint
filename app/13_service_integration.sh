@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# File: app/13_service_integration.sh
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -64,36 +65,18 @@ IP=$3
 
 LOG_FILE="/var/log/wazuh-blocks.log"
 
-is_private_ip() {
-    local ip=$1
-    
-    if [[ "$ip" =~ ^192\.168\. ]] || \
-       [[ "$ip" =~ ^10\. ]] || \
-       [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-       [[ "$ip" =~ ^127\. ]] || \
-       [[ "$ip" = "0.0.0.0" ]] || \
-       [[ "$ip" = "255.255.255.255" ]]; then
-        return 0
-    fi
-    return 1
-}
-
 case "$ACTION" in
   add)
-    if ! is_private_ip "$IP"; then
-        if ! iptables -L INPUT -n | grep -q "$IP"; then
-            /usr/sbin/iptables -I INPUT -s $IP -j DROP
-            echo "$(date) - Wazuh blocked IP: $IP" >> "$LOG_FILE"
-        fi
-        /usr/sbin/fail2ban-client set sshd banip $IP 2>/dev/null || true
+    if ! iptables -L INPUT -n | grep -q "$IP"; then
+        /usr/sbin/iptables -I INPUT -s $IP -j DROP
+        echo "$(date) - Wazuh blocked IP: $IP" >> "$LOG_FILE"
     fi
+    /usr/sbin/fail2ban-client set sshd banip $IP 2>/dev/null || true
     ;;
   delete)
-    if ! is_private_ip "$IP"; then
-        /usr/sbin/iptables -D INPUT -s $IP -j DROP 2>/dev/null || true
-        /usr/sbin/fail2ban-client set sshd unbanip $IP 2>/dev/null || true
-        echo "$(date) - Wazuh unblocked IP: $IP" >> "$LOG_FILE"
-    fi
+    /usr/sbin/iptables -D INPUT -s $IP -j DROP 2>/dev/null || true
+    /usr/sbin/fail2ban-client set sshd unbanip $IP 2>/dev/null || true
+    echo "$(date) - Wazuh unblocked IP: $IP" >> "$LOG_FILE"
     ;;
 esac
 EOF
@@ -112,50 +95,37 @@ log_event() {
 
 validate_ip() {
     local ip=$1
-    
-    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        return 1
-    fi
-    
-    IFS='.' read -ra ADDR <<< "$ip"
-    for i in "${ADDR[@]}"; do
-        if [[ $i -gt 255 ]]; then
-            return 1
+    if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        IFS='.' read -ra ADDR <<< "$ip"
+        for i in "${ADDR[@]}"; do
+            if [[ $i -gt 255 ]]; then
+                return 1
+            fi
+        done
+        if [[ ! "$ip" =~ ^(10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|192\.168\.|127\.|0\.|169\.254\.) ]]; then
+            return 0
         fi
-    done
-    
-    if [[ "$ip" =~ ^192\.168\. ]] || \
-       [[ "$ip" =~ ^10\. ]] || \
-       [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || \
-       [[ "$ip" =~ ^127\. ]] || \
-       [[ "$ip" = "0.0.0.0" ]] || \
-       [[ "$ip" = "255.255.255.255" ]] || \
-       [[ "$ip" =~ ^169\.254\. ]] || \
-       [[ "$ip" =~ ^224\. ]] || \
-       [[ "$ip" =~ ^240\. ]]; then
-        return 1
     fi
-    
-    return 0
+    return 1
 }
 
 extract_and_ban() {
     > "$BANNED_IPS_FILE"
     
     if [ -f "/var/log/suricata/fast.log" ]; then
-        tail -n 50 "/var/log/suricata/fast.log" 2>/dev/null | grep -E "ATTACK|EXPLOIT|MALWARE" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
+        tail -n 100 "/var/log/suricata/fast.log" 2>/dev/null | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
     fi
 
     if [ -f "/var/ossec/logs/alerts/alerts.log" ]; then
-        tail -n 50 "/var/ossec/logs/alerts/alerts.log" 2>/dev/null | grep -E "authentication_failed|intrusion_attempt" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
+        tail -n 100 "/var/ossec/logs/alerts/alerts.log" 2>/dev/null | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
     fi
 
     if [ -f "/var/log/nginx/access.log" ]; then
-        tail -n 50 "/var/log/nginx/access.log" 2>/dev/null | grep -E " (444|429|403) " | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
+        tail -n 100 "/var/log/nginx/access.log" 2>/dev/null | grep -E "(40[0-9]|50[0-9])" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
     fi
 
     if [ -f "/var/log/fail2ban.log" ]; then
-        tail -n 20 "/var/log/fail2ban.log" 2>/dev/null | grep "Ban " | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
+        tail -n 50 "/var/log/fail2ban.log" 2>/dev/null | grep "Ban " | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort -u >> "$BANNED_IPS_FILE"
     fi
 
     if [ -f "$BANNED_IPS_FILE" ] && [ -s "$BANNED_IPS_FILE" ]; then
@@ -165,7 +135,7 @@ extract_and_ban() {
             if validate_ip "$ip"; then
                 if ! iptables -L INPUT -n 2>/dev/null | grep -q "$ip"; then
                     if iptables -I INPUT -s "$ip" -j DROP 2>/dev/null; then
-                        log_event "Auto-banned external IP: $ip"
+                        log_event "Auto-banned IP: $ip"
                         fail2ban-client set sshd banip "$ip" 2>/dev/null || true
                     fi
                 fi
@@ -194,4 +164,4 @@ mkdir -p /var/log
 touch /var/log/security-sync.log /var/log/wazuh-blocks.log
 chmod 644 /var/log/security-sync.log /var/log/wazuh-blocks.log
 
-log_info "Enhanced service integration configured with private IP protection"
+log_info "Enhanced service integration configured with auto-recovery"
