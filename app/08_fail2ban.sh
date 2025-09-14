@@ -121,6 +121,7 @@ failregex = ^\S+\s+\[\*\*\] \[.+\] .* \[Classification: .+\] \[Priority: .+\] \{
 ignoreregex =
 EOF
 
+
 systemctl enable fail2ban
 systemctl restart fail2ban
 sleep 3
