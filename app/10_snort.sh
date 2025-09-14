@@ -45,15 +45,15 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=snort
+Group=snort
 ExecStartPre=/bin/mkdir -p /var/run/snort
 ExecStartPre=/bin/chown snort:snort /var/run/snort
-ExecStart=/bin/bash -c 'while true; do /usr/bin/snort -A console -q -c /etc/snort/snort.conf -i ${PRIMARY_IFACE} 2>/dev/null || true; sleep 10; done'
-Restart=always
+ExecStart=/usr/bin/snort -A console -q -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}
+Restart=on-failure
 RestartSec=30
-StandardOutput=null
-StandardError=null
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -61,42 +61,51 @@ EOF
 
 systemctl daemon-reload
 systemctl enable snort
-systemctl start snort
 
-sleep 10
-
-if systemctl is-active --quiet snort; then
-    log_info "Snort service started successfully"
-else
-    log_warn "Main Snort service failed, trying alternative approach"
+log_info "Testing Snort configuration..."
+if /usr/bin/snort -T -c /etc/snort/snort.conf &>/dev/null; then
+    log_info "Snort configuration test passed"
+    systemctl start snort
+    sleep 10
     
-    cat > /etc/systemd/system/snort-alt.service <<EOF
+    if systemctl is-active --quiet snort; then
+        log_info "Snort service started successfully"
+    else
+        log_warn "Snort service failed to start, checking logs..."
+        journalctl -u snort --no-pager -n 20
+    fi
+else
+    log_error "Snort configuration test failed"
+    log_info "Creating minimal fallback service..."
+    
+    cat > /etc/systemd/system/snort-minimal.service <<EOF
 [Unit]
-Description=Snort Alternative Service
+Description=Snort Minimal IDS
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash -c 'exec /usr/bin/snort -A console -q -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}'
-Restart=always
+User=root
+ExecStart=/usr/bin/snort -A console -q -i ${PRIMARY_IFACE}
+Restart=on-failure
 RestartSec=60
-StandardOutput=null
-StandardError=null
-KillMode=process
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
     systemctl daemon-reload
-    systemctl enable snort-alt
-    systemctl start snort-alt
+    systemctl enable snort-minimal
+    systemctl start snort-minimal
     
     sleep 5
-    if systemctl is-active --quiet snort-alt; then
-        log_info "Snort alternative service started successfully"
+    if systemctl is-active --quiet snort-minimal; then
+        log_info "Snort minimal service started successfully"
     else
-        log_warn "All Snort service configurations failed to start properly"
+        log_error "All Snort configurations failed"
+        journalctl -u snort-minimal --no-pager -n 20
     fi
 fi
 
