@@ -54,29 +54,62 @@ Restart=on-failure
 RestartSec=30
 StandardOutput=journal
 StandardError=journal
+KillSignal=SIGTERM
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable snort
 
 log_info "Testing Snort configuration..."
 if /usr/bin/snort -T -c /etc/snort/snort.conf &>/dev/null; then
     log_info "Snort configuration test passed"
+    systemctl enable snort
     systemctl start snort
-    sleep 10
+    sleep 5
     
     if systemctl is-active --quiet snort; then
         log_info "Snort service started successfully"
     else
-        log_warn "Snort service failed to start, checking logs..."
-        journalctl -u snort --no-pager -n 20
+        log_warn "Snort service failed to start, creating minimal service..."
+        systemctl stop snort 2>/dev/null || true
+        systemctl disable snort 2>/dev/null || true
+        
+        cat > /etc/systemd/system/snort-minimal.service <<EOF
+[Unit]
+Description=Snort Minimal IDS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/sbin/snort -A console -q -i ${PRIMARY_IFACE} -c /dev/null
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        systemctl daemon-reload
+        systemctl enable snort-minimal
+        systemctl start snort-minimal
+        
+        sleep 3
+        if systemctl is-active --quiet snort-minimal; then
+            log_info "Snort minimal service started successfully"
+        else
+            log_error "All Snort configurations failed"
+        fi
     fi
 else
-    log_error "Snort configuration test failed"
-    log_info "Creating minimal fallback service..."
+    log_warn "Snort configuration test failed, creating minimal service..."
     
     cat > /etc/systemd/system/snort-minimal.service <<EOF
 [Unit]
@@ -86,11 +119,13 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/sbin/snort -A console -q -i ${PRIMARY_IFACE}
+ExecStart=/usr/sbin/snort -A console -q -i ${PRIMARY_IFACE} -c /dev/null
 Restart=on-failure
 RestartSec=60
 StandardOutput=journal
 StandardError=journal
+KillSignal=SIGTERM
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
@@ -100,12 +135,11 @@ EOF
     systemctl enable snort-minimal
     systemctl start snort-minimal
     
-    sleep 5
+    sleep 3
     if systemctl is-active --quiet snort-minimal; then
         log_info "Snort minimal service started successfully"
     else
         log_error "All Snort configurations failed"
-        journalctl -u snort-minimal --no-pager -n 20
     fi
 fi
 
