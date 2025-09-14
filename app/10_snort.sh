@@ -86,7 +86,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/snort -A console -q -i ${PRIMARY_IFACE}
+ExecStart=/usr/sbin/snort -A console -q -i ${PRIMARY_IFACE}
 Restart=on-failure
 RestartSec=60
 StandardOutput=journal
