@@ -98,6 +98,8 @@ sudo SecureVista.sh
   <br><strong>SecureVista Command Line Interface</strong>
 </div>
 
+
+
 **SecureVista Features:**
 - System Dashboard
 

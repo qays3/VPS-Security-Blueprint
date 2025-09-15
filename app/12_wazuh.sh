@@ -78,53 +78,47 @@ node.name: wazuh-indexer
 path.data: /var/lib/wazuh-indexer
 path.logs: /var/log/wazuh-indexer
 
-network.host: ["$INTERNAL_IP", "127.0.0.1"]
+network.host: ["127.0.0.1"]
 http.port: 9200
 transport.port: 9300
 
 discovery.type: single-node
 cluster.initial_master_nodes: ["wazuh-indexer"]
 
-plugins.security.ssl.transport.pemcert_filepath: certs/indexer.pem
-plugins.security.ssl.transport.pemkey_filepath: certs/indexer-key.pem
-plugins.security.ssl.transport.pemtrustedcas_filepath: certs/root-ca.pem
-plugins.security.ssl.transport.enforce_hostname_verification: false
-plugins.security.ssl.http.enabled: true
-plugins.security.ssl.http.pemcert_filepath: certs/indexer.pem
-plugins.security.ssl.http.pemkey_filepath: certs/indexer-key.pem
-plugins.security.ssl.http.pemtrustedcas_filepath: certs/root-ca.pem
-plugins.security.allow_unsafe_democertificates: true
-plugins.security.allow_default_init_securityindex: true
-plugins.security.authcz.admin_dn:
-  - CN=admin,O=Organization,L=City,ST=State,C=US
-plugins.security.audit.type: internal_opensearch
-plugins.security.enable_snapshot_restore_privilege: true
-plugins.security.check_snapshot_restore_write_privileges: true
-plugins.security.restapi.roles_enabled: ["all_access", "security_rest_api_access"]
+plugins.security.disabled: true
 
-bootstrap.memory_lock: true
+bootstrap.memory_lock: false
 EOF
 
 cat > /etc/wazuh-indexer/jvm.options <<EOF
--Xms1g
--Xmx1g
+-Xms512m
+-Xmx512m
 -XX:+UseG1GC
 -XX:MaxGCPauseMillis=200
--XX:+UnlockExperimentalVMOptions
--XX:+UseCGroupMemoryLimitForHeap
-EOF
-
-cat >> /etc/security/limits.conf <<EOF
-wazuh-indexer soft memlock unlimited
-wazuh-indexer hard memlock unlimited
-wazuh-indexer soft nofile 65536
-wazuh-indexer hard nofile 65536
 EOF
 
 systemctl enable wazuh-indexer
 systemctl start wazuh-indexer
 
+sleep 15
+
+TIMEOUT=60
+COUNTER=0
+while ! curl -s http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1; do
+    if [ $COUNTER -ge $TIMEOUT ]; then
+        log_error "Wazuh indexer failed to start within $TIMEOUT seconds"
+        exit 1
+    fi
+    sleep 2
+    COUNTER=$((COUNTER + 2))
+    log_info "Waiting for indexer to start... ($COUNTER/$TIMEOUT)"
+done
+
+log_info "Wazuh indexer is running"
+
 DEBIAN_FRONTEND=noninteractive apt install -y wazuh-manager
+
+mkdir -p /var/ossec/etc/rules /var/ossec/logs/alerts /var/ossec/active-response/bin
 
 cat > /var/ossec/etc/ossec.conf <<EOF
 <ossec_config>
@@ -205,13 +199,8 @@ cat > /var/ossec/etc/ossec.conf <<EOF
   <indexer>
     <enabled>yes</enabled>
     <hosts>
-      <host>https://$INTERNAL_IP:9200</host>
+      <host>http://127.0.0.1:9200</host>
     </hosts>
-    <ssl>
-      <certificate_authorities>/etc/wazuh-indexer/certs/root-ca.pem</certificate_authorities>
-      <certificate>/etc/wazuh-indexer/certs/admin.pem</certificate>
-      <key>/etc/wazuh-indexer/certs/admin-key.pem</key>
-    </ssl>
   </indexer>
 
   <active-response>
@@ -283,11 +272,6 @@ chmod -R 750 /var/ossec/etc
 chmod 644 /var/ossec/etc/ossec.conf
 chmod 644 /var/ossec/etc/rules/local_rules.xml
 
-ufw allow 9200/tcp >/dev/null 2>&1 || true
-ufw allow 1515/tcp >/dev/null 2>&1 || true
-ufw allow 1514/tcp >/dev/null 2>&1 || true
-ufw reload >/dev/null 2>&1 || true
-
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
@@ -296,9 +280,7 @@ sleep 10
 cat > /usr/local/bin/wazuh <<EOF
 #!/bin/bash
 
-WAZUH_INDEXER="https://$INTERNAL_IP:9200"
-USERNAME="admin"
-PASSWORD="admin"
+WAZUH_INDEXER="http://127.0.0.1:9200"
 
 show_help() {
     echo "Wazuh Query Tool"
@@ -311,10 +293,8 @@ show_help() {
     echo "  -i, --indices           List all indices"
     echo "  -a, --alerts [N]        Show last N alerts (default: 10)"
     echo "  -f, --failed-logins     Show failed login attempts"
-    echo "  -b, --blocked-ips       Show blocked IPs"
     echo "  -w, --web-attacks       Show web attacks"
     echo "  -n, --network-events    Show network events"
-    echo "  -t, --timerange HOURS   Set time range in hours (default: 24)"
     echo ""
     echo "Examples:"
     echo "  wazuh --alerts 20       # Show last 20 alerts"
@@ -322,7 +302,6 @@ show_help() {
     echo "  wazuh --web-attacks     # Show web attack attempts"
 }
 
-TIMERANGE="24h"
 ALERT_COUNT="10"
 
 while [[ \$# -gt 0 ]]; do
@@ -333,12 +312,12 @@ while [[ \$# -gt 0 ]]; do
             ;;
         -s|--status)
             echo "Wazuh Indexer Cluster Status:"
-            curl -k -u \$USERNAME:\$PASSWORD \$WAZUH_INDEXER/_cluster/health?pretty
+            curl -s \$WAZUH_INDEXER/_cluster/health?pretty
             exit 0
             ;;
         -i|--indices)
             echo "Available Indices:"
-            curl -k -u \$USERNAME:\$PASSWORD \$WAZUH_INDEXER/_cat/indices?v
+            curl -s \$WAZUH_INDEXER/_cat/indices?v
             exit 0
             ;;
         -a|--alerts)
@@ -350,71 +329,51 @@ while [[ \$# -gt 0 ]]; do
             ;;
         -f|--failed-logins)
             echo "Recent Failed Login Attempts:"
-            curl -k -u \$USERNAME:\$PASSWORD -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
+            curl -s -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
               "size": 20,
               "sort": [{"@timestamp": {"order": "desc"}}],
               "query": {
                 "bool": {
                   "must": [
-                    {"range": {"@timestamp": {"gte": "now-'"\$TIMERANGE"'"}}},
-                    {"match": {"rule.description": "sshd"}}
+                    {"range": {"@timestamp": {"gte": "now-24h"}}},
+                    {"wildcard": {"rule.description": "*sshd*"}}
                   ]
                 }
               }
-            }' | jq -r '.hits.hits[]._source | "\(.@timestamp) \(.data.srcip // "N/A") \(.rule.description)"'
-            exit 0
-            ;;
-        -b|--blocked-ips)
-            echo "Recently Blocked IPs:"
-            curl -k -u \$USERNAME:\$PASSWORD -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
-              "size": 50,
-              "sort": [{"@timestamp": {"order": "desc"}}],
-              "query": {
-                "bool": {
-                  "must": [
-                    {"range": {"@timestamp": {"gte": "now-'"\$TIMERANGE"'"}}},
-                    {"wildcard": {"rule.description": "*ban*"}}
-                  ]
-                }
-              }
-            }' | jq -r '.hits.hits[]._source | "\(.@timestamp) \(.data.srcip // "N/A") \(.rule.description)"'
+            }' 2>/dev/null | jq -r '.hits.hits[]._source | "\(.timestamp // .@timestamp) \(.data.srcip // "N/A") \(.rule.description)"' 2>/dev/null || echo "No data available"
             exit 0
             ;;
         -w|--web-attacks)
             echo "Recent Web Attacks:"
-            curl -k -u \$USERNAME:\$PASSWORD -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
+            curl -s -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
               "size": 20,
               "sort": [{"@timestamp": {"order": "desc"}}],
               "query": {
                 "bool": {
                   "must": [
-                    {"range": {"@timestamp": {"gte": "now-'"\$TIMERANGE"'"}}},
+                    {"range": {"@timestamp": {"gte": "now-24h"}}},
                     {"terms": {"rule.groups": ["web", "attack", "modsecurity"]}}
                   ]
                 }
               }
-            }' | jq -r '.hits.hits[]._source | "\(.@timestamp) \(.data.srcip // "N/A") \(.rule.description)"'
+            }' 2>/dev/null | jq -r '.hits.hits[]._source | "\(.timestamp // .@timestamp) \(.data.srcip // "N/A") \(.rule.description)"' 2>/dev/null || echo "No data available"
             exit 0
             ;;
         -n|--network-events)
             echo "Recent Network Events:"
-            curl -k -u \$USERNAME:\$PASSWORD -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
+            curl -s -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
               "size": 20,
               "sort": [{"@timestamp": {"order": "desc"}}],
               "query": {
                 "bool": {
                   "must": [
-                    {"range": {"@timestamp": {"gte": "now-'"\$TIMERANGE"'"}}},
+                    {"range": {"@timestamp": {"gte": "now-24h"}}},
                     {"terms": {"rule.groups": ["ids", "network", "intrusion_attempt"]}}
                   ]
                 }
               }
-            }' | jq -r '.hits.hits[]._source | "\(.@timestamp) \(.data.srcip // "N/A") \(.rule.description)"'
+            }' 2>/dev/null | jq -r '.hits.hits[]._source | "\(.timestamp // .@timestamp) \(.data.srcip // "N/A") \(.rule.description)"' 2>/dev/null || echo "No data available"
             exit 0
-            ;;
-        -t|--timerange)
-            TIMERANGE="\$2h"
-            shift 2
             ;;
         *)
             echo "Unknown option: \$1"
@@ -425,53 +384,31 @@ while [[ \$# -gt 0 ]]; do
 done
 
 echo "Recent Wazuh Alerts (Last \$ALERT_COUNT):"
-curl -k -u \$USERNAME:\$PASSWORD -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
+curl -s -X GET "\$WAZUH_INDEXER/wazuh-alerts-*/_search?pretty" -H 'Content-Type: application/json' -d '{
   "size": '"\$ALERT_COUNT"',
   "sort": [{"@timestamp": {"order": "desc"}}],
   "query": {
     "range": {
       "@timestamp": {
-        "gte": "now-'"\$TIMERANGE"'"
+        "gte": "now-24h"
       }
     }
   }
-}' | jq -r '.hits.hits[]._source | "\(.@timestamp) Level:\(.rule.level) \(.rule.description) Source:\(.data.srcip // "localhost")"'
+}' 2>/dev/null | jq -r '.hits.hits[]._source | "\(.timestamp // .@timestamp) Level:\(.rule.level) \(.rule.description) Source:\(.data.srcip // "localhost")"' 2>/dev/null || echo "No recent alerts found"
 EOF
 
 chmod 755 /usr/local/bin/wazuh
 
 sleep 5
 
-curl -k -u admin:admin -X PUT "$WAZUH_INDEXER/_index_template/wazuh-template" -H 'Content-Type: application/json' -d '{
-  "index_patterns": ["wazuh-alerts-*"],
-  "template": {
-    "settings": {
-      "number_of_shards": 1,
-      "number_of_replicas": 0,
-      "index.refresh_interval": "5s"
-    },
-    "mappings": {
-      "properties": {
-        "@timestamp": {"type": "date"},
-        "rule.level": {"type": "integer"},
-        "rule.description": {"type": "text"},
-        "data.srcip": {"type": "ip"},
-        "agent.name": {"type": "keyword"}
-      }
-    }
-  }
-}' >/dev/null 2>&1 || log_warn "Failed to create index template"
-
 cat > /root/WAZUH_INFO.txt <<EOF
-Wazuh Indexer URL: https://$INTERNAL_IP:9200
-Username: admin
-Password: admin
+Wazuh Indexer URL: http://127.0.0.1:9200
+No authentication required (simplified setup)
 
 Usage:
 wazuh --help
 wazuh --alerts 20
 wazuh --failed-logins
-wazuh --blocked-ips
 wazuh --web-attacks
 wazuh --network-events
 EOF
@@ -480,14 +417,16 @@ if systemctl is-active --quiet wazuh-indexer; then
     log_info "Wazuh Indexer is running"
 else
     log_error "Wazuh Indexer failed to start"
+    systemctl status wazuh-indexer --no-pager
 fi
 
 if systemctl is-active --quiet wazuh-manager; then
     log_info "Wazuh Manager is running"
 else
     log_error "Wazuh Manager failed to start"
+    systemctl status wazuh-manager --no-pager
 fi
 
 log_info "Installation completed"
-log_info "Wazuh Indexer URL: https://$INTERNAL_IP:9200"
+log_info "Wazuh Indexer URL: http://127.0.0.1:9200"
 log_info "Use: wazuh --help"
