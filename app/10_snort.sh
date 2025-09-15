@@ -66,7 +66,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${SNORT_PATH} -D -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}
+ExecStart=/usr/sbin/snort -D -c /etc/snort/snort.conf -i ${PRIMARY_IFACE}
 Restart=always
 User=root
 
@@ -75,23 +75,23 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable snort-alternative
-systemctl start snort-alternative
+systemctl enable snort
+systemctl start snort
 
-sleep 5
+sleep 10
 
-if systemctl is-active --quiet snort-alternative; then
-    log_info "Snort alternative service started successfully"
-    systemctl disable snort 2>/dev/null || true
-    systemctl stop snort 2>/dev/null || true
+if systemctl is-active --quiet snort; then
+    log_info "Snort service started successfully"
 else
-    log_warn "Snort alternative failed, trying main service"
-    systemctl enable snort
-    systemctl start snort
+    log_warn "Main Snort service failed, starting alternative"
+    
+    systemctl daemon-reload
+    systemctl enable snort-alternative
+    systemctl start snort-alternative
     
     sleep 5
-    if systemctl is-active --quiet snort; then
-        log_info "Snort main service started successfully"
+    if systemctl is-active --quiet snort-alternative; then
+        log_info "Snort alternative service started successfully"
     else
         log_warn "All Snort service configurations failed to start properly"
     fi
