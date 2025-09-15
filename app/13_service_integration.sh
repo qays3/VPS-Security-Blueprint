@@ -13,6 +13,11 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 log_info "Setting up enhanced service integration..."
 
+mkdir -p /var/ossec/etc/rules
+mkdir -p /var/ossec/active-response/bin
+mkdir -p /var/ossec/logs/alerts
+mkdir -p /var/log
+
 cat > /var/ossec/etc/rules/local_rules.xml <<'EOF'
 <group name="local,syslog,">
   <rule id="100001" level="10">
@@ -160,7 +165,6 @@ cat > /etc/cron.d/security-health <<'EOF'
 */10 * * * * root systemctl is-active --quiet wazuh-manager || systemctl restart wazuh-manager >/dev/null 2>&1
 EOF
 
-mkdir -p /var/log
 touch /var/log/security-sync.log /var/log/wazuh-blocks.log
 chmod 644 /var/log/security-sync.log /var/log/wazuh-blocks.log
 
