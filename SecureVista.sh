@@ -48,7 +48,7 @@ system_status() {
     services=(
         "suricata:Suricata IPS"
         "snort:Snort IDS" 
-        "snort-alt:Snort Alternative"
+        "snort-alternative:Snort Alternative"
         "fail2ban:Fail2ban"
         "nginx:Nginx"
         "wazuh-manager:Wazuh Manager"
