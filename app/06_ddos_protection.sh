@@ -4,262 +4,191 @@ set -euo pipefail
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_info "Setting up Cloudflare DDoS protection integration..."
+log_info "Setting up advanced DDoS protection..."
 
-read -p "Enter your domain name (e.g., example.com): " DOMAIN
-read -p "Enter your server's real IP address: " SERVER_IP
+iptables -N DDOS_PROTECTION 2>/dev/null || iptables -F DDOS_PROTECTION
+iptables -N RATE_LIMIT 2>/dev/null || iptables -F RATE_LIMIT
+iptables -N CONN_LIMIT 2>/dev/null || iptables -F CONN_LIMIT
 
-cat > /etc/nginx/conf.d/cloudflare.conf <<EOF
-set_real_ip_from 173.245.48.0/20;
-set_real_ip_from 103.21.244.0/22;
-set_real_ip_from 103.22.200.0/22;
-set_real_ip_from 103.31.4.0/22;
-set_real_ip_from 141.101.64.0/18;
-set_real_ip_from 108.162.192.0/18;
-set_real_ip_from 190.93.240.0/20;
-set_real_ip_from 188.114.96.0/20;
-set_real_ip_from 197.234.240.0/22;
-set_real_ip_from 198.41.128.0/17;
-set_real_ip_from 162.158.0.0/15;
-set_real_ip_from 104.16.0.0/13;
-set_real_ip_from 104.24.0.0/14;
-set_real_ip_from 172.64.0.0/13;
-set_real_ip_from 131.0.72.0/22;
-set_real_ip_from 2400:cb00::/32;
-set_real_ip_from 2606:4700::/32;
-set_real_ip_from 2803:f800::/32;
-set_real_ip_from 2405:b500::/32;
-set_real_ip_from 2405:8100::/32;
-set_real_ip_from 2a06:98c0::/29;
-set_real_ip_from 2c0f:f248::/32;
+echo 'net.core.rmem_default = 262144' >> /etc/sysctl.conf
+echo 'net.core.rmem_max = 16777216' >> /etc/sysctl.conf
+echo 'net.core.wmem_default = 262144' >> /etc/sysctl.conf
+echo 'net.core.wmem_max = 16777216' >> /etc/sysctl.conf
+echo 'net.core.netdev_max_backlog = 30000' >> /etc/sysctl.conf
+echo 'net.core.netdev_budget = 600' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_rmem = 10240 87380 12582912' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_wmem = 10240 87380 12582912' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_max_syn_backlog = 8192' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_syncookies = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_syn_retries = 2' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_synack_retries = 2' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_max_orphans = 65536' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_fin_timeout = 10' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_keepalive_time = 120' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_keepalive_probes = 3' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_keepalive_intvl = 10' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_retries2 = 5' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_no_metrics_save = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_moderate_rcvbuf = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.route.flush = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.ip_local_port_range = 1024 65535' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_rfc1337 = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.ip_forward = 0' >> /etc/sysctl.conf
+echo 'net.ipv4.conf.all.mc_forwarding = 0' >> /etc/sysctl.conf
+echo 'net.ipv4.conf.all.accept_redirects = 0' >> /etc/sysctl.conf
+echo 'net.ipv4.conf.all.send_redirects = 0' >> /etc/sysctl.conf
+echo 'net.ipv4.conf.all.rp_filter = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.conf.all.log_martians = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.icmp_echo_ignore_broadcasts = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.icmp_ignore_bogus_error_responses = 1' >> /etc/sysctl.conf
+echo 'net.ipv4.icmp_echo_ignore_all = 0' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_timestamps = 0' >> /etc/sysctl.conf
 
-real_ip_header CF-Connecting-IP;
-real_ip_recursive on;
-EOF
+sysctl -p
 
-iptables -N CLOUDFLARE_ONLY 2>/dev/null || iptables -F CLOUDFLARE_ONLY
+iptables -A DDOS_PROTECTION -m state --state INVALID -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags FIN,SYN FIN,SYN -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags FIN,RST FIN,RST -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags FIN,ACK FIN -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ACK,URG URG -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ACK,FIN FIN -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ACK,PSH PSH -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ALL ALL -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ALL NONE -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ALL FIN,PSH,URG -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ALL SYN,FIN,PSH,URG -j DROP
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP
+iptables -A DDOS_PROTECTION -f -j DROP
+iptables -A DDOS_PROTECTION -m ttl --ttl-lt 64 -j DROP
 
-iptables -A CLOUDFLARE_ONLY -s 173.245.48.0/20 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 103.21.244.0/22 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 103.22.200.0/22 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 103.31.4.0/22 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 141.101.64.0/18 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 108.162.192.0/18 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 190.93.240.0/20 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 188.114.96.0/20 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 197.234.240.0/22 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 198.41.128.0/17 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 162.158.0.0/15 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 104.16.0.0/13 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 104.24.0.0/14 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 172.64.0.0/13 -j ACCEPT
-iptables -A CLOUDFLARE_ONLY -s 131.0.72.0/22 -j ACCEPT
+iptables -A CONN_LIMIT -p tcp --syn -m connlimit --connlimit-above 15 --connlimit-mask 32 -j REJECT --reject-with tcp-reset
+iptables -A CONN_LIMIT -p tcp --tcp-flags SYN,ACK,FIN,RST RST -m limit --limit 1/s --limit-burst 2 -j ACCEPT
 
-iptables -A CLOUDFLARE_ONLY -j DROP
+iptables -A RATE_LIMIT -p tcp --dport 80 -m hashlimit --hashlimit-above 25/sec --hashlimit-burst 50 --hashlimit-mode srcip --hashlimit-name http_rate_limit -j DROP
+iptables -A RATE_LIMIT -p tcp --dport 443 -m hashlimit --hashlimit-above 25/sec --hashlimit-burst 50 --hashlimit-mode srcip --hashlimit-name https_rate_limit -j DROP
+iptables -A RATE_LIMIT -p tcp --dport 22 -m hashlimit --hashlimit-above 4/min --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-name ssh_rate_limit -j DROP
+iptables -A RATE_LIMIT -p tcp --syn -m hashlimit --hashlimit-above 15/sec --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-name syn_flood -j DROP
+iptables -A RATE_LIMIT -p icmp -m hashlimit --hashlimit-above 10/sec --hashlimit-burst 20 --hashlimit-mode srcip --hashlimit-name icmp_flood -j DROP
+iptables -A RATE_LIMIT -p udp -m hashlimit --hashlimit-above 20/sec --hashlimit-burst 40 --hashlimit-mode srcip --hashlimit-name udp_flood -j DROP
+iptables -A RATE_LIMIT -p udp --dport 53 -m hashlimit --hashlimit-above 5/sec --hashlimit-burst 10 --hashlimit-mode srcip --hashlimit-name dns_rate_limit -j DROP
+iptables -A RATE_LIMIT -p udp --dport 123 -m hashlimit --hashlimit-above 2/sec --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-name ntp_rate_limit -j DROP
+iptables -A RATE_LIMIT -p udp --dport 161 -j DROP
 
-iptables -I INPUT -p tcp --dport 80 -j CLOUDFLARE_ONLY
-iptables -I INPUT -p tcp --dport 443 -j CLOUDFLARE_ONLY
+iptables -A DDOS_PROTECTION -p tcp --dport 23 -j DROP
+iptables -A DDOS_PROTECTION -p tcp --dport 135 -j DROP
+iptables -A DDOS_PROTECTION -p tcp --dport 445 -j DROP
+iptables -A DDOS_PROTECTION -p tcp --dport 1433 -j DROP
+iptables -A DDOS_PROTECTION -p tcp --dport 3389 -j DROP
+iptables -A DDOS_PROTECTION -p udp --dport 1900 -j DROP
+iptables -A DDOS_PROTECTION -p udp --dport 5353 -j DROP
 
-cat > /etc/nginx/sites-available/cloudflare-protected <<EOF
-server {
-    listen 80;
-    server_name $DOMAIN www.$DOMAIN;
-    
-    if (\$http_cf_ray = "") {
-        return 444;
-    }
-    
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header CF-Connecting-IP \$http_cf_connecting_ip;
-        proxy_set_header CF-Ray \$http_cf_ray;
-        proxy_set_header CF-Visitor \$http_cf_visitor;
-    }
-    
-    location /health {
-        access_log off;
-        return 200 "healthy\n";
-        add_header Content-Type text/plain;
-    }
-    
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host \$host;
-    }
-}
+iptables -A DDOS_PROTECTION -p tcp -m length --length 1000:65535 -m hashlimit --hashlimit-above 10/sec --hashlimit-burst 20 --hashlimit-mode srcip --hashlimit-name large_packets -j DROP
 
-server {
-    listen 8080;
-    server_name $DOMAIN www.$DOMAIN;
-    root /var/www/html;
-    index index.html index.htm;
-    
-    access_log /var/log/nginx/backend_access.log;
-    error_log /var/log/nginx/backend_error.log;
-    
-    location / {
-        try_files \$uri \$uri/ =404;
-    }
-}
-EOF
+iptables -A DDOS_PROTECTION -p tcp --dport 80 -m conntrack --ctstate NEW -m recent --set --name slowloris
+iptables -A DDOS_PROTECTION -p tcp --dport 80 -m conntrack --ctstate NEW -m recent --update --seconds 60 --hitcount 10 --name slowloris -j DROP
+iptables -A DDOS_PROTECTION -p tcp --dport 443 -m conntrack --ctstate NEW -m recent --set --name slowloris_ssl
+iptables -A DDOS_PROTECTION -p tcp --dport 443 -m conntrack --ctstate NEW -m recent --update --seconds 60 --hitcount 10 --name slowloris_ssl -j DROP
 
-ln -sf /etc/nginx/sites-available/cloudflare-protected /etc/nginx/sites-enabled/
+iptables -A DDOS_PROTECTION -p tcp --tcp-flags SYN,ACK,FIN,RST RST -m hashlimit --hashlimit-above 1/sec --hashlimit-burst 2 --hashlimit-mode srcip --hashlimit-name port_scan -j DROP
 
-cat > /usr/local/bin/cloudflare-setup <<'EOF'
+iptables -I INPUT 1 -j DDOS_PROTECTION
+iptables -I INPUT 2 -j CONN_LIMIT  
+iptables -I INPUT 3 -j RATE_LIMIT
+iptables -I INPUT 1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -I INPUT 1 -i lo -j ACCEPT
+
+cat > /usr/local/bin/emergency-whitelist <<'EOF'
 #!/bin/bash
-
-echo "=== Cloudflare Setup Instructions ==="
-echo ""
-echo "1. Sign up for Cloudflare (free): https://cloudflare.com"
-echo "2. Add your domain to Cloudflare"
-echo "3. Change your domain's nameservers to Cloudflare's"
-echo "4. In Cloudflare dashboard:"
-echo "   - Go to Security > DDoS"
-echo "   - Enable 'I'm Under Attack Mode' for maximum protection"
-echo "   - Go to Security > WAF"
-echo "   - Enable Web Application Firewall"
-echo "   - Go to Security > Bots"
-echo "   - Enable Bot Fight Mode"
-echo "   - Go to Speed > Optimization"
-echo "   - Enable Auto Minify for JS, CSS, HTML"
-echo "   - Go to Caching > Configuration"
-echo "   - Set Browser Cache TTL to 1 year"
-echo "   - Go to SSL/TLS > Overview"
-echo "   - Set encryption mode to 'Full (strict)'"
-echo ""
-echo "5. DNS Settings:"
-echo "   A record: @ -> $SERVER_IP (proxied/orange cloud)"
-echo "   A record: www -> $SERVER_IP (proxied/orange cloud)"
-echo ""
-echo "6. Page Rules (create these in order):"
-echo "   1. *$DOMAIN/admin* -> Security Level: High, Cache Level: Bypass"
-echo "   2. *$DOMAIN/*.php* -> Security Level: High, Cache Level: Bypass"
-echo "   3. *$DOMAIN/* -> Security Level: Medium, Cache Level: Standard"
-echo ""
-echo "7. Firewall Rules:"
-echo "   - Block countries: Create rule to block high-risk countries"
-echo "   - Rate limiting: 10 requests per 10 seconds per IP"
-echo "   - Challenge bad bots: (http.user_agent contains \"bot\" and not cf.verified_bot_category in {\"Search Engine\"})"
-echo ""
-echo "Your server will only accept traffic from Cloudflare IPs!"
-EOF
-
-chmod +x /usr/local/bin/cloudflare-setup
-
-cat > /usr/local/bin/cf-threat-intel <<'EOF'
-#!/bin/bash
-
-echo "=== Cloudflare Threat Intelligence ==="
-echo "Recent threats blocked:"
-echo ""
-
-if [ -f /var/log/nginx/access.log ]; then
-    echo "Top blocked IPs (non-Cloudflare traffic):"
-    grep -v "CF-Ray" /var/log/nginx/access.log | awk '{print $1}' | sort | uniq -c | sort -nr | head -10
-    echo ""
-    
-    echo "Recent 444 responses (blocked non-CF traffic):"
-    grep " 444 " /var/log/nginx/access.log | tail -10
-    echo ""
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <IP_ADDRESS>"
+    exit 1
 fi
+IP=$1
+iptables -I INPUT 1 -s $IP -j ACCEPT
+echo "IP $IP added to emergency whitelist"
+EOF
+chmod +x /usr/local/bin/emergency-whitelist
 
-echo "Cloudflare headers in recent requests:"
-grep "CF-Ray" /var/log/nginx/access.log | tail -5 | awk '{print $1, $7, $9}'
+netfilter-persistent save
+
+cat > /etc/fail2ban/jail.d/ddos.conf <<'EOF'
+[ddos]
+enabled = true
+port = http,https
+filter = ddos
+logpath = /var/log/nginx/access.log
+maxretry = 20
+findtime = 60
+bantime = 3600
+action = iptables[name=ddos, port=http, protocol=tcp]
+
+[slowloris]
+enabled = true
+port = http,https
+filter = slowloris
+logpath = /var/log/nginx/access.log
+maxretry = 5
+findtime = 300
+bantime = 7200
+action = iptables[name=slowloris, port=http, protocol=tcp]
+
+[nginx-botsearch]
+enabled = true
+port = http,https
+filter = nginx-botsearch
+logpath = /var/log/nginx/access.log
+maxretry = 2
+bantime = 86400
+action = iptables[name=nginx-botsearch, port=http, protocol=tcp]
 EOF
 
-chmod +x /usr/local/bin/cf-threat-intel
-
-cat > /etc/fail2ban/filter.d/cloudflare-bypass.conf <<'EOF'
+cat > /etc/fail2ban/filter.d/ddos.conf <<'EOF'
 [Definition]
-failregex = ^<HOST> -.*" (444|403) .*$
+failregex = ^<HOST> -.*"(GET|POST).*HTTP.*" (200|404) .*$
+ignoreregex = 
+EOF
+
+cat > /etc/fail2ban/filter.d/slowloris.conf <<'EOF'
+[Definition]
+failregex = ^<HOST> .*"GET.*HTTP/1\.[01]" 408 .*$
+            ^<HOST> .*"GET.*HTTP/1\.[01]" 400 .*$
 ignoreregex =
 EOF
 
-cat > /etc/fail2ban/jail.d/cloudflare.conf <<'EOF'
-[cloudflare-bypass]
-enabled = true
-port = http,https
-filter = cloudflare-bypass
-logpath = /var/log/nginx/access.log
-maxretry = 3
-findtime = 300
-bantime = 86400
-action = iptables[name=cloudflare-bypass, port=http, protocol=tcp]
+cat > /etc/fail2ban/filter.d/nginx-botsearch.conf <<'EOF'
+[Definition]
+failregex = ^<HOST> -.*"(GET|POST).*(bot|spider|crawler|scraper|harvest|extract|scan|php|admin|wp-|phpmyadmin).*" .*$
+ignoreregex =
 EOF
 
-ufw allow from 173.245.48.0/20 to any port 80
-ufw allow from 103.21.244.0/22 to any port 80
-ufw allow from 103.22.200.0/22 to any port 80
-ufw allow from 103.31.4.0/22 to any port 80
-ufw allow from 141.101.64.0/18 to any port 80
-ufw allow from 108.162.192.0/18 to any port 80
-ufw allow from 190.93.240.0/20 to any port 80
-ufw allow from 188.114.96.0/20 to any port 80
-ufw allow from 197.234.240.0/22 to any port 80
-ufw allow from 198.41.128.0/17 to any port 80
-ufw allow from 162.158.0.0/15 to any port 80
-ufw allow from 104.16.0.0/13 to any port 80
-ufw allow from 104.24.0.0/14 to any port 80
-ufw allow from 172.64.0.0/13 to any port 80
-ufw allow from 131.0.72.0/22 to any port 80
-
-ufw allow from 173.245.48.0/20 to any port 443
-ufw allow from 103.21.244.0/22 to any port 443
-ufw allow from 103.22.200.0/22 to any port 443
-ufw allow from 103.31.4.0/22 to any port 443
-ufw allow from 141.101.64.0/18 to any port 443
-ufw allow from 108.162.192.0/18 to any port 443
-ufw allow from 190.93.240.0/20 to any port 443
-ufw allow from 188.114.96.0/20 to any port 443
-ufw allow from 197.234.240.0/22 to any port 443
-ufw allow from 198.41.128.0/17 to any port 443
-ufw allow from 162.158.0.0/15 to any port 443
-ufw allow from 104.16.0.0/13 to any port 443
-ufw allow from 104.24.0.0/14 to any port 443
-ufw allow from 172.64.0.0/13 to any port 443
-ufw allow from 131.0.72.0/22 to any port 443
-
-nginx -t && systemctl reload nginx
 systemctl restart fail2ban
-netfilter-persistent save
 
-cat > /root/CLOUDFLARE_SETUP.txt <<EOF
-=== Cloudflare Protection Configured ===
+cat > /usr/local/bin/ddos-monitor <<'EOF'
+#!/bin/bash
 
-Your server is now configured to ONLY accept traffic from Cloudflare.
-Direct IP access is blocked - all traffic must go through Cloudflare.
-
-Next steps:
-1. Run: cloudflare-setup
-2. Follow the instructions to configure Cloudflare dashboard
-3. Update your DNS to point to Cloudflare
-4. Enable SSL/TLS and security features
-
-Monitoring:
-- Check threats: cf-threat-intel
-- Monitor logs: tail -f /var/log/nginx/access.log
-- Cloudflare analytics: Check your Cloudflare dashboard
-
-Domain: $DOMAIN
-Backend server: http://127.0.0.1:8080
-Cloudflare proxy: Port 80/443
-
-IMPORTANT: Your site will be down until you complete Cloudflare setup!
+echo "=== DDoS Protection Status ==="
+echo "Active connections: $(ss -s | grep estab | awk '{print $2}')"
+echo "SYN_RECV connections: $(ss -s | grep -o 'syn-recv [0-9]*' | awk '{print $2}')"
+echo "Dropped packets: $(cat /proc/net/netstat | grep -o 'ListenDrops [0-9]*' | awk '{print $2}')"
+echo "Current iptables packet counters:"
+iptables -L DDOS_PROTECTION -v -n | head -20
+echo ""
+echo "Top 10 connecting IPs:"
+ss -tn | awk 'NR>1 {print $4}' | cut -d: -f1 | sort | uniq -c | sort -nr | head -10
+echo ""
+echo "Recent fail2ban actions:"
+tail -20 /var/log/fail2ban.log | grep Ban
 EOF
+chmod +x /usr/local/bin/ddos-monitor
 
-log_info "Cloudflare protection configured"
-log_info "Run 'cloudflare-setup' for next steps"
-log_info "Your server now ONLY accepts Cloudflare traffic"
+log_info "Advanced DDoS protection configured"
+log_info "Monitor with: ddos-monitor"
+log_info "Emergency whitelist: emergency-whitelist <IP>"
