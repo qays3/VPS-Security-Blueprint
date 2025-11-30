@@ -163,7 +163,7 @@ remove_custom_scripts() {
     
     rm -f /usr/local/bin/security-status.sh
     rm -f /usr/local/bin/security-sync.sh
-    rm -f /usr/local/bin/SecureVista.sh
+    rm -f /usr/local/bin/Blueprint.sh
     rm -f /usr/local/bin/wazuh
     
     rm -f /etc/systemd/system/snort.service
@@ -366,8 +366,8 @@ remove_documentation() {
     rm -f /root/WAZUH_INFO.txt
     
     find /root -name "sec-backups-*" -type d -exec rm -rf {} + 2>/dev/null || true
-    find /root -name "securevista_backup_*" -type f -delete 2>/dev/null || true
-    find /root -name "securevista_config_*" -type f -delete 2>/dev/null || true
+    find /root -name "Blueprint_backup_*" -type f -delete 2>/dev/null || true
+    find /root -name "Blueprint_config_*" -type f -delete 2>/dev/null || true
     find /root -name "system_snapshots" -type d -exec rm -rf {} + 2>/dev/null || true
 }
 
