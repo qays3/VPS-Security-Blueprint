@@ -9,7 +9,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}Error: SecureVista requires root privileges${NC}"
+    echo -e "${RED}Error: Blueprint requires root privileges${NC}"
     echo "Usage: sudo $0"
     exit 1
 fi
@@ -17,7 +17,7 @@ fi
 show_banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              ${PURPLE}SecureVista v1.0${CYAN}               ║${NC}"
+    echo -e "${CYAN}║              ${PURPLE}Blueprint v1.0${CYAN}               ║${NC}"
     echo -e "${CYAN}║         ${YELLOW}VPS Security Management Tool${CYAN}        ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -902,7 +902,7 @@ backup_restore() {
             1)
                 echo ""
                 timestamp=$(date +%Y%m%d_%H%M%S)
-                backup_dir="/root/securevista_backups/backup_$timestamp"
+                backup_dir="/root/Blueprint_backups/backup_$timestamp"
                 mkdir -p "$backup_dir"
                 
                 echo -e "${CYAN}Creating full security backup...${NC}"
@@ -919,15 +919,15 @@ backup_restore() {
                 ufw status verbose > "$backup_dir/ufw_status.txt"
                 dpkg -l > "$backup_dir/installed_packages.txt"
                 
-                tar czf "/root/securevista_backup_$timestamp.tar.gz" -C /root/securevista_backups "backup_$timestamp"
+                tar czf "/root/Blueprint_backup_$timestamp.tar.gz" -C /root/Blueprint_backups "backup_$timestamp"
                 rm -rf "$backup_dir"
                 
-                echo -e "${GREEN}Backup created: /root/securevista_backup_$timestamp.tar.gz${NC}"
+                echo -e "${GREEN}Backup created: /root/Blueprint_backup_$timestamp.tar.gz${NC}"
                 ;;
             2)
                 echo ""
                 echo -e "${CYAN}Available backups:${NC}"
-                ls -la /root/securevista_backup_*.tar.gz 2>/dev/null | awk '{print $9}' | nl
+                ls -la /root/Blueprint_backup_*.tar.gz 2>/dev/null | awk '{print $9}' | nl
                 echo ""
                 read -p "Enter backup filename: " backup_file
                 
@@ -956,27 +956,27 @@ backup_restore() {
             3)
                 echo ""
                 echo -e "${CYAN}Available Backups:${NC}"
-                ls -lh /root/securevista_backup_*.tar.gz 2>/dev/null || echo -e "${YELLOW}No backups found${NC}"
+                ls -lh /root/Blueprint_backup_*.tar.gz 2>/dev/null || echo -e "${YELLOW}No backups found${NC}"
                 ;;
             4)
                 echo ""
                 echo -e "${CYAN}Backups older than 30 days:${NC}"
-                find /root -name "securevista_backup_*.tar.gz" -mtime +30 2>/dev/null
+                find /root -name "Blueprint_backup_*.tar.gz" -mtime +30 2>/dev/null
                 echo ""
                 read -p "Delete old backups? (yes/no): " confirm
                 if [ "$confirm" = "yes" ]; then
-                    find /root -name "securevista_backup_*.tar.gz" -mtime +30 -delete 2>/dev/null
+                    find /root -name "Blueprint_backup_*.tar.gz" -mtime +30 -delete 2>/dev/null
                     echo -e "${GREEN}Old backups deleted${NC}"
                 fi
                 ;;
             5)
                 echo ""
                 timestamp=$(date +%Y%m%d_%H%M%S)
-                config_file="/root/securevista_config_$timestamp.txt"
+                config_file="/root/Blueprint_config_$timestamp.txt"
                 
                 echo -e "${CYAN}Exporting configuration to $config_file...${NC}"
                 
-                echo "# SecureVista Configuration Export - $timestamp" > "$config_file"
+                echo "# Blueprint Configuration Export - $timestamp" > "$config_file"
                 echo "# UFW Rules" >> "$config_file"
                 ufw status verbose >> "$config_file"
                 echo -e "\n# iptables Rules" >> "$config_file"
@@ -1022,7 +1022,7 @@ main_loop() {
             8) firewall_rules ;;
             9) backup_restore ;;
             0) 
-                echo -e "${GREEN}Thank you for using SecureVista!${NC}"
+                echo -e "${GREEN}Thank you for using Blueprint!${NC}"
                 exit 0 
                 ;;
             *) 
