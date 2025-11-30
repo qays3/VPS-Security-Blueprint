@@ -56,7 +56,7 @@
 11. [ModSecurity Web Application Firewall](#modsecurity-web-application-firewall)
 12. [Wazuh Security Information and Event Management](#wazuh-security-information-and-event-management)
 13. [Service Synchronization](#service-synchronization)
-14. [SecureVista Management Interface](#securevista-management-interface)
+14. [Blueprint Management Interface](#Blueprint-management-interface)
 15. [System Monitoring](#system-monitoring)
 16. [Log Management](#log-management)
 17. [Backup and Recovery](#backup-and-recovery)
@@ -64,11 +64,11 @@
 
 ---
 
-### SecureVista Security Dashboard Overview
+### Blueprint Security Dashboard Overview
 
 <div align="center">
-  <img src="img/Dashboard.png" alt="SecureVista Main Security Dashboard" style="border: 2px solid #ddd; border-radius: 8px; max-width: 100%; height: auto;">
-  <br><strong>SecureVista Main Security Dashboard</strong>
+  <img src="img/Dashboard.png" alt="Blueprint Main Security Dashboard" style="border: 2px solid #ddd; border-radius: 8px; max-width: 100%; height: auto;">
+  <br><strong>Blueprint Main Security Dashboard</strong>
 </div>
 
 ---
@@ -82,7 +82,7 @@ git clone https://github.com/qays3/VPS-Security-Blueprint.git
 cd VPS-Security-Blueprint
 
 chmod +x run.sh
-chmod +x SecureVista.sh
+chmod +x Blueprint.sh
 
 sudo ./run.sh -h
 ```
@@ -90,17 +90,17 @@ sudo ./run.sh -h
 ### Post-Installation Management
 
 ```bash
-sudo SecureVista.sh
+sudo Blueprint.sh
 ```
 
 <div align="center">
-  <img src="img/SecureVista.png" alt="SecureVista Command Line Interface" style="border: 2px solid #ddd; border-radius: 8px; max-width: 100%; height: auto;">
-  <br><strong>SecureVista Command Line Interface</strong>
+  <img src="img/Blueprint.png" alt="Blueprint Command Line Interface" style="border: 2px solid #ddd; border-radius: 8px; max-width: 100%; height: auto;">
+  <br><strong>Blueprint Command Line Interface</strong>
 </div>
 
 
 
-**SecureVista Features:**
+**Blueprint Features:**
 - System Dashboard
 
 <div align="center">
@@ -169,7 +169,7 @@ sudo SecureVista.sh
 
 ```bash
 sudo /usr/local/bin/security-status.sh
-sudo /usr/local/bin/SecureVista.sh
+sudo /usr/local/bin/Blueprint.sh
 sudo /usr/local/bin/security-sync.sh
 sudo tail -f /var/ossec/logs/alerts/alerts.log
 ```
@@ -630,9 +630,9 @@ EOF
 
 ---
 
-## SecureVista Management Interface
+## Blueprint Management Interface
 
-**Implementation Script:** `SecureVista.sh`
+**Implementation Script:** `Blueprint.sh`
 
 **Technologies Used:**
 - **Bash scripting** - Interactive interface framework
@@ -653,7 +653,7 @@ EOF
 
 **Usage:**
 ```bash
-sudo /usr/local/bin/SecureVista.sh
+sudo /usr/local/bin/Blueprint.sh
 ```
 
 **Interface Features:**
@@ -753,7 +753,7 @@ EOF
 ```bash
 log_info "Security setup completed successfully!"
 log_info "Run '/usr/local/bin/security-status.sh' to check system status."
-log_info "Run '/usr/local/bin/SecureVista.sh' for interactive management."
+log_info "Run '/usr/local/bin/Blueprint.sh' for interactive management."
 log_info "Remember to take a VPS snapshot now!"
 
 log_warn "IMPORTANT: Test SSH login with user '$USERNAME' before closing this session!"
@@ -785,11 +785,11 @@ Login username: ${USERNAME}
 - Snort: Network traffic monitoring and analysis
 - ModSecurity: Web application firewall protection
 - Fail2ban: Automated intrusion prevention
-- SecureVista: Unified security management interface
+- Blueprint: Unified security management interface
 
 === Management Commands ===
 - Security status: /usr/local/bin/security-status.sh
-- Management interface: /usr/local/bin/SecureVista.sh
+- Management interface: /usr/local/bin/Blueprint.sh
 - Service synchronization: /usr/local/bin/security-sync.sh
 - Wazuh alerts: tail -f /var/ossec/logs/alerts/alerts.log
 
@@ -831,7 +831,7 @@ The VPS Security Blueprint introduces **industry-first capabilities**:
 | **Akamai Security** | $1,000+ | Web only | Minutes | 35% |
 | **CrowdStrike** | $500+ | Endpoint only | Minutes | 25% |
 | **Security Onion** | $0 | Manual setup | Hours | 70% |
-| **SecureVista VPS Security Blueprint** | **$0** | **Full automation** | **Milliseconds** | **100%** |
+| **Blueprint VPS Security Blueprint** | **$0** | **Full automation** | **Milliseconds** | **100%** |
 
 ---
 
@@ -856,7 +856,7 @@ The VPS Security Blueprint introduces **industry-first capabilities**:
 
 4. **Management and Monitoring**
    - Wazuh SIEM for centralized log management
-   - SecureVista interface for unified control
+   - Blueprint interface for unified control
    - Cross-service threat intelligence sharing
 
 5. **Operational Management**
