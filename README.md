@@ -1,4 +1,4 @@
-# VPS Security Blueprint - SecureVista
+# VPS Security Blueprint
 
 [![Ubuntu][ubuntu-badge]][ubuntu-url]
 [![Debian][debian-badge]][debian-url]
